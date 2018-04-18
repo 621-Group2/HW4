@@ -1,0 +1,881 @@
+---
+title: 'Group#2 Homework #4'
+author: "Group 2"
+date: "4/8/2018"
+output: html_document
+---
+
+#Introduction
+The purpose of this homework assignment is to explore, analyze and model a dataset containing 8161 observations and 26 variables. The dataset are records representing a customer at an auto insurance company.
+
+Each record has two response variables. The first response variable, TARGET_FLAG which is binary (0,1). If someone was in car crash the value is 1 and if the person was not in a car cash the value is 0. 
+
+The second response variable is TARGET_ATM. If someone was in a car cash the value is 1 and if they did not crash their car the value is greater than 0.
+
+#Objective and Requirements
+The objective is to build multiple linear regression and binary logistic regression models on the training data to predict the probability that a person will crash their car and also the amount of money it will cost if the person does crash their car. 
+
+Ony the variables that are given or variables derived from the variables provided. 
+
+#Approach
+The team met to discuss this assignment and an approach to plan to complete the assignment. Each of the 5 team members was assigned tasks. The following tasks were assigned:
+
+*Data Exploration
+*Data Preparation
+*Build Models
+*Select Models
+
+Github was used to manage the project. Using Github helped with version control and ensured each team member had access to the latest version of the project documentation. 
+Slack was used to by the team to communicate during the project and for quick access to code and documentation.
+```{r libraries, echo=FALSE, message=FALSE, warning=FALSE}
+
+library(psych)
+library(GGally)
+library(ggplot2)
+library(reshape)
+library(VIM)
+library(mice)
+library(stringr)
+library(dplyr)
+library(car)
+library(usdm)
+library(tidyverse)
+library(stringr)
+library(DataExplorer)
+library(knitr)
+library(corrplot)
+
+options(scipen=999)
+```
+#Dataset
+For reproducibility of the results, the data was loaded to and accessed from a Github repository. 
+
+```{r Read data, echo=FALSE, message=FALSE, warning=FALSE}
+insurance_train <- read.csv("https://raw.githubusercontent.com/621-Group2/HW4/master/insurance_training_data.csv", header=TRUE, sep=",")
+
+#Remove the index from tehd dataset
+insurance_train$INDEX <- NULL
+
+insurance_train$INCOME <- as.numeric(str_replace_all(insurance_train$INCOME, "\\$|,", ""))
+insurance_train$HOME_VAL <- as.numeric(str_replace_all(insurance_train$HOME_VAL, "\\$|,", ""))
+insurance_train$BLUEBOOK <- as.numeric(str_replace_all(insurance_train$BLUEBOOK, "\\$|,", ""))
+insurance_train$OLDCLAIM <- as.numeric(str_replace_all(insurance_train$OLDCLAIM, "\\$|,", ""))
+
+# get_outliers function
+get_outliers <-  function(x, n = 10) {
+  
+  bp <- boxplot.stats(x)
+  
+  obs_hi <- unique(x[which(x > bp$stats[5])])
+
+  if (length(obs_hi) < n) { n <- length(obs_hi) }
+
+  hi <- sort(obs_hi, decreasing = T)[1:n]
+  
+  obs_low <- unique(x[which(x < bp$stats[1])])
+
+  if (length(obs_low) < n) { n <- length(obs_low) }
+
+  low <- sort(obs_low, decreasing = T)[1:n]
+
+  return (list(Hi=hi, Low=low))
+  
+}  
+
+
+```
+#Data Exploration
+Several of the predictor variables contain missing values and outliers. Imputation will be used for the missing values.
+##Missing Values
+The majority of variables do not contain missing values. The predictor CAR_AGE (Vehicl Age) contains 510 missing values and YOJ(Years on Job) contain 454 missing values.
+
+```{r miss, echo=FALSE, message=FALSE, warning=FALSE}
+
+sapply(insurance_train, function(x) sum(is.na(x)))
+
+```
+
+```{r miss_plot, echo=FALSE, message=FALSE, warning=FALSE}
+
+plot_missing(insurance_train, title="Insurance Dataset - Missing Values (%)")
+
+```
+
+##Variables
+```{r data exploration, echo=FALSE, message=FALSE, warning=FALSE}
+variableNames <- c("TARGET_FLAG", "TARGET_AMT", "AGE", "BLUEBOOK", "CAR_AGE", "CAR_TYPE", "CAR_USE", "CLM_FREQ", "EDUCATION", "HOMEKIDS", "HOME_VAL", "INCOME", 
+"JOB", "KIDSDRIV", "MSTATUS", "MVR_PTS", "OLDCLAIM", "PARENT1", "RED_CAR", "REVOKED", "SEX", "TIF", "TRAVTIME", "URBANICITY", "YOJ")
+
+definition <- c("Was Car in a crash? 1=YES 0=NO", "If car was in a crash, what was the cost", "Age of Driver", "Value of Vehicle", "Vehicle Age", "Type of Car", "Vehicle Use", "# Claims (Past 5 Years)", "Max Education Level", "# Children at Home", "Home Value", "Income", "Job Category", "# Driving Children", "Marital Status", "Motor Vehicle Record Points", "Total Claims (Past 5 Years)", "Single Parent", "A Red Car", "License Revoked (Past 7 Years)", "Gender", "Time in Force", "Distance to Work", "Home/Work Area", "Years on Job")
+
+variableType <- c("Response", "Response", "Predictor", "Predictor", "Predictor", "Predictor", "Predictor", "Predictor", "Predictor", "Predictor", "Predictor", "Predictor", "Predictor", "Predictor", "Predictor", "Predictor", "Predictor", "Predictor", "Predictor", "Predictor", "Predictor", "Predictor", "Predictor", "Predictor", "Predictor")
+
+dfInsurance_md <- cbind.data.frame (variableNames, definition, variableType)
+
+colnames(dfInsurance_md) <- c("Variable Name", "Definition", "Variable Type") 
+knitr::kable(dfInsurance_md)
+```
+
+##Descriptive Statistics
+
+Descriptive statisitics was performed for all predictor and response variables to explore the data. 
+
+```{r descriptive statistics, echo=FALSE, message=FALSE, warning=FALSE}
+#Calculate mean missing values per variable
+insurance_train %>% summarize_all(funs(sum(is.na(.)) / length(.)))
+
+#Use Describe Package to calculate Descriptive Statistic
+(InsuranceTrain_des <- describe(insurance_train, na.rm=TRUE, interp=FALSE, skew=TRUE, ranges=TRUE, trim=.1, type=3, check=TRUE, fast=FALSE, quant=c(.1,.25,.75,.90), IQR=TRUE))
+
+```
+
+##Correlation Analysis
+There is high correlation amoung several predictors CLM_FREQ and MVR_PTS; KIDSDRV and AGE; GET_FLAT and TARGET_AMT; AGE and HOMEKIDS. 
+
+```{r correlation, echo=FALSE, message=FALSE, warning=FALSE}
+ggcorr(insurance_train)
+
+corrplot::corrplot(insurance_train, method = "number")
+
+```
+
+
+#### Correlation with Outcome Variable - TARGET_FLAG
+
+VARIABLE   |   CORRELATION WITH TARGET_FLAG  
+-----------|----------------------------------------
+KIDSDRIV | `r cor(insurance_train$TARGET_FLAG, insurance_train$KIDSDRIV, use="complete.obs")`  
+AGE | `r cor(insurance_train$TARGET_FLAG, insurance_train$AGE, use="complete.obs")`  
+HOMEKIDS | `r cor(insurance_train$TARGET_FLAG, insurance_train$HOMEKIDS, use="complete.obs")`  
+YOJ | `r cor(insurance_train$TARGET_FLAG, insurance_train$YOJ , use="complete.obs")`  
+INCOME | `r cor(insurance_train$TARGET_FLAG, insurance_train$INCOME, use="complete.obs")`  
+HOME_VAL | `r cor(insurance_train$TARGET_FLAG, insurance_train$HOME_VAL, use="complete.obs")`
+TRAVTIME | `r cor(insurance_train$TARGET_FLAG, insurance_train$TRAVTIME, use="complete.obs")`  
+BLUEBOOK | `r cor(insurance_train$TARGET_FLAG, insurance_train$BLUEBOOK, use="complete.obs")`  
+TIF | `r cor(insurance_train$TARGET_FLAG, insurance_train$TIF, use="complete.obs")`  
+OLDCLAIM | `r cor(insurance_train$TARGET_FLAG, insurance_train$OLDCLAIM, use="complete.obs")`  
+CLM_FREQ | `r cor(insurance_train$TARGET_FLAG, insurance_train$CLM_FREQ, use="complete.obs")`  
+MVR_PTS | `r cor(insurance_train$TARGET_FLAG, insurance_train$MVR_PTS, use="complete.obs")`  
+CAR_AGE | `r cor(insurance_train$TARGET_FLAG, insurance_train$CAR_AGE, use="complete.obs")`  
+
+
+#### Correlation with Outcome Variable - TARGET_AMT
+
+VARIABLE   |   CORRELATION WITH TARGET_AMT
+-----------|----------------------------------------
+KIDSDRIV | `r cor(insurance_train$TARGET_AMT, insurance_train$KIDSDRIV, use="complete.obs")`  
+AGE | `r cor(insurance_train$TARGET_AMT, insurance_train$AGE, use="complete.obs")`  
+HOMEKIDS | `r cor(insurance_train$TARGET_AMT, insurance_train$HOMEKIDS, use="complete.obs")`  
+YOJ | `r cor(insurance_train$TARGET_AMT, insurance_train$YOJ , use="complete.obs")`  
+INCOME | `r cor(insurance_train$TARGET_AMT, insurance_train$INCOME, use="complete.obs")`  
+HOME_VAL | `r cor(insurance_train$TARGET_AMT, insurance_train$HOME_VAL, use="complete.obs")`
+TRAVTIME | `r cor(insurance_train$TARGET_AMT, insurance_train$TRAVTIME, use="complete.obs")`  
+BLUEBOOK | `r cor(insurance_train$TARGET_AMT, insurance_train$BLUEBOOK, use="complete.obs")`  
+TIF | `r cor(insurance_train$TARGET_AMT, insurance_train$TIF, use="complete.obs")`  
+OLDCLAIM | `r cor(insurance_train$TARGET_AMT, insurance_train$OLDCLAIM, use="complete.obs")`  
+CLM_FREQ | `r cor(insurance_train$TARGET_AMT, insurance_train$CLM_FREQ, use="complete.obs")`  
+MVR_PTS | `r cor(insurance_train$TARGET_AMT, insurance_train$MVR_PTS, use="complete.obs")`  
+CAR_AGE | `r cor(insurance_train$TARGET_AMT, insurance_train$CAR_AGE, use="complete.obs")`
+
+
+
+#Analysis of predictors
+Each predictor was examed to determine whether transformation is needed.
+
+##KIDSDRIV
+The Driving Children variable is highly skewed to the right. There appear to be outliers
+```{r KIDSDRIV, echo=FALSE, message=FALSE, warning=FALSE}
+#Density & box plots
+par(mfrow=c(1,2))
+kidDensity <- density(insurance_train$KIDSDRIV)
+plot(kidDensity, main="Driving Kids")
+polygon(kidDensity, col="red", border="red")
+
+boxplot(insurance_train$KIDSDRIV, main="Boxplot of Driving Kids", col="blue")
+
+```
+
+###Extreme Observations
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+x <- get_outliers(insurance_train$KIDSDRIV)
+
+```
+
+Range  |  Values      
+-------|-------------
+Lowest | `r ifelse(is.na(x$Low), 'None', x$low)`       
+Highest | `r x$Hi`    
+
+
+
+
+##AGE
+The AGE predictor is normally distributed with high outliers of ages 72, 73, 76, 80 & 81 ane low 16, 17 and 18.
+```{r age, echo=FALSE, message=FALSE, warning=FALSE}
+par(mfrow=c(1,2))
+ageDensity <- density(na.omit(insurance_train$AGE))
+plot(ageDensity, main="Age of Driver")
+polygon(ageDensity, col="red", border="red")
+
+boxplot(insurance_train$AGE, main="Boxplot Age of Driver", col="blue")
+
+```
+
+###Extreme Observations
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+x <- get_outliers(insurance_train$AGE)
+
+```
+
+Range  |  Values   
+-------|-------------
+Lowest | `r ifelse(is.na(x$Low), "None", x$Low)`     
+Highest | `r x$Hi`    
+
+
+
+
+##BLUEBOOK
+The predictor of car value BLUEBOOK shape is similar to bimodal. There are some outliers a the higher car value level.
+```{r bluebook, echo=FALSE, message=FALSE, warning=FALSE}
+par(mfrow=c(1,2))
+bBookDensity <- density(as.numeric(insurance_train$BLUEBOOK))
+plot(bBookDensity, main="Value of Vehicle")
+polygon(bBookDensity, col="red", border="red")
+
+boxplot(as.numeric(insurance_train$BLUEBOOK, main="Boxplot Value of Vehicle"), col="blue")
+
+```
+
+###Extreme Observations
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+x <- get_outliers(insurance_train$BLUEBOOK) 
+
+```
+
+Range  |  Values      
+-------|------------------------------------------------------------------------
+Lowest | `r ifelse(is.na(x$Low), 'None', x$Low)`                                
+Highest | `r ifelse(is.na(x$Hi), 'None', x$Hi)`      
+
+
+##CAR_AGE 
+The distribution of the age of the vechicale is normal. There are several outliers with newer and older cars.
+```{r car_age, echo=FALSE, message=FALSE, warning=FALSE}
+par(mfrow=c(1,2))
+car_ageDensity <- density(na.omit(insurance_train$AGE))
+plot(car_ageDensity, main="Vehicle Age")
+polygon(car_ageDensity, col="red", border="red")
+
+boxplot(insurance_train$AGE, main="Boxplot Vehicle Age", col="blue")
+
+```
+
+###Extreme Observations
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+x <- get_outliers(insurance_train$CAR_AGE)
+
+```
+
+Range  |  Values   
+-------|-------------
+Lowest | `r ifelse(is.na(x$Low), 'None', x$Low)`   
+Highest | `r ifelse(is.na(x$Hi), 'None', x$Hi)` 
+
+
+##CAR_TYPE 
+z_SUV and Minivan are majority of vehicles insured.
+```{r car_type, echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(insurance_train, aes(x = CAR_TYPE)) + 
+  geom_bar(fill = "red", width = 0.7) + 
+  xlab("Type of Car") + ylab("Number of Observations")
+
+table(insurance_train$CAR_TYPE)
+```
+##CAR_USE
+The majority of cars are privately used.
+```{r car_use, echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(insurance_train, aes(x = CAR_USE)) + 
+  geom_bar(fill = "red", width = 0.7) + 
+  xlab("Vehicle Use") + ylab("Number of Observations")
+
+table(insurance_train$CAR_USE)
+```
+##CLM_FREQ 
+The distribution of claims is multi modal. With the largest number of claims occuring before year 1.
+```{r clm_freq, echo=FALSE, message=FALSE, warning=FALSE}
+par(mfrow=c(1,2))
+clm_freqDensity <- density(as.numeric(insurance_train$CLM_FREQ))
+plot(clm_freqDensity, main="# Claims (Past 5 Years)  ")
+polygon(clm_freqDensity, col="red", border="red")
+
+boxplot(insurance_train$CLM_FREQ, main="# Claims (Past 5 Years)", col="blue")
+```
+
+###Extreme Observations
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+x <- get_outliers(insurance_train$CLM_FREQ)
+
+```
+
+Range  |  Values 
+-------|------------
+Lowest | `r ifelse(is.na(x$Low), 'None', x$Low)`     
+Highest | `r ifelse(is.na(x$Hi), 'None', x$Hi)`  
+
+
+
+
+
+##EDUCATION
+```{r education, echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(insurance_train, aes(x = EDUCATION)) + 
+  geom_bar(fill = "red", width = 0.7) + 
+  xlab("Type of Car") + ylab("Max Education Level")
+
+table(insurance_train$EDUCATION)
+```
+
+##HOMEKIDS 
+The distribution of HOMEKIDS is multimodal. The majority of customers do not have any children.
+```{r homekids, echo=FALSE, message=FALSE, warning=FALSE}
+par(mfrow=c(1,2))
+homekidsDensity <- density(as.numeric(insurance_train$HOMEKIDS))
+plot(homekidsDensity, main="# Children at Home")
+polygon(homekidsDensity, col="red", border="red")
+
+boxplot(as.numeric(insurance_train$HOMEKIDS, main="# Children at Home "), col="blue")
+```
+
+
+###Extreme Observations
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+x <- get_outliers(insurance_train$HOMEKIDS)
+
+```
+
+Range  |  Values   
+-------|-------------
+Lowest | `r ifelse(is.na(x$Low), 'None', x$Low)`     
+Highest | `r x$Hi`    
+
+
+
+
+##HOME_VAL 
+The distribution of HOME_VAL is skewed to the left. There are negative values that will require futher exploration.
+```{r home_val, echo=FALSE, message=FALSE, warning=FALSE}
+par(mfrow=c(1,2))
+home_valDensity <- density(as.numeric(insurance_train$HOME_VAL), na.rm = T)
+plot(home_valDensity, main="Home Value")
+polygon(home_valDensity, col="red", border="red")
+
+boxplot(as.numeric(insurance_train$HOME_VAL, main="Home Value"), col="blue")
+```
+
+
+###Extreme Observations
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+x <- get_outliers(insurance_train$HOME_VAL)
+
+```
+
+Range  |  Values   
+-------|---------------------------------------------------------------
+Lowest | `r ifelse(is.na(x$Low), 'None', x$Low)`                       
+Highest | `r x$Hi`      
+
+
+
+
+##INCOME 
+The distribution INCOME has uni modal and skewed to the left.
+```{r income, echo=FALSE, message=FALSE, warning=FALSE}
+par(mfrow=c(1,2))
+incomeDensity <- density(as.numeric(insurance_train$INCOME), na.rm = T)
+plot(incomeDensity, main="Income")
+polygon(incomeDensity, col="red", border="red")
+
+boxplot(as.numeric(insurance_train$INCOME, main="Income"), col="blue")
+```
+
+###Extreme Observations
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+x <- get_outliers(insurance_train$INCOME)
+
+```
+
+Range  |  Values                                                   
+-------|-------------------------------------------------------- 
+Lowest | `r ifelse(is.na(x$Low), 'None', x$Low)`                                              
+Highest | `r ifelse(is.na(x$Hi), 'None', x$Hi)`                                                              
+
+
+
+
+##JOB
+```{r}
+ggplot(insurance_train, aes(x = JOB)) + 
+  geom_bar(fill = "red", width = 0.7) + 
+  xlab("Job Category") + ylab("V")
+
+table(insurance_train$JOB)
+```
+##MSTATUS 
+```{r mstatus, echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(insurance_train, aes(x = MSTATUS)) + 
+  geom_bar(fill = "red", width = 0.7) + 
+  xlab("Marital Status") + ylab("V")
+
+table(insurance_train$MSTATUS)
+```
+
+##MVR_PTS  
+The distribution of the MVR_PTS is skewed to the left. 
+```{r job, echo=FALSE, message=FALSE, warning=FALSE}
+par(mfrow=c(1,2))
+mvr_ptsDensity <- density(insurance_train$MVR_PTS)
+plot(mvr_ptsDensity, main="Motor Vehicle Record Points")
+polygon(mvr_ptsDensity, col="red", border="red")
+
+boxplot(insurance_train$MVR_PTS, main="Motor Vehicle Record Points", col="blue")
+```
+
+###Extreme Observations
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+x <- get_outliers(insurance_train$MVR_PTS)
+
+```
+
+Range  |  Values 
+-------|-------------
+Lowest | `r ifelse(is.na(x$Low), 'None', x$Low)`    
+Highest | `r ifelse(is.na(x$Hi), 'None', x$Hi)`
+
+
+
+##OLDCLAIM 
+The distribution OLDCLAIM is highly skewed to the left.
+```{r oldclaim, echo=FALSE, message=FALSE, warning=FALSE}
+par(mfrow=c(1,2))
+oldclaimDensity <- density(as.numeric(insurance_train$OLDCLAIM))
+plot(oldclaimDensity, main="Total Claims (Past 5 Years) ")
+polygon(oldclaimDensity, col="red", border="red")
+
+boxplot(as.numeric(insurance_train$OLDCLAIM, main="Total Claims (Past 5 Years) "), col="blue")
+```
+
+###Extreme Observations
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+x <- get_outliers(insurance_train$OLDCLAIM)
+
+```
+
+Range  |  Values 
+-------|------------------------------------------------------------------
+Lowest | `r ifelse(is.na(x$Low), 'None', x$Low)`                           
+Highest | `r ifelse(is.na(x$Hi), 'None', x$Hi)`                                                       
+
+
+
+##PARENT1
+The majority of customers are signle parents.
+```{r parent1, echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(insurance_train, aes(x = PARENT1)) + 
+  geom_bar(fill = "red", width = 0.7) + 
+  xlab("Single Parent ") + ylab("V")
+
+table(insurance_train$PARENT1)
+```
+##RED_CAR 
+```{r red_car, echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(insurance_train, aes(x = RED_CAR)) + 
+  geom_bar(fill = "red", width = 0.7) + 
+  xlab("A Red Car ") + ylab("V")
+
+table(insurance_train$RED_CAR)
+```
+
+##TIF 
+The distribution of TIF is skewed to the left with several outliers.
+```{r tif, echo=FALSE, message=FALSE, warning=FALSE}
+par(mfrow=c(1,2))
+tifDensity <- density(as.numeric(insurance_train$TIF))
+plot(tifDensity, main="Time in Force")
+polygon(tifDensity, col="red", border="red")
+
+boxplot(as.numeric(insurance_train$TIF, main="Time in Force"), col="blue")
+```
+
+###Extreme Observations
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+x <- get_outliers(insurance_train$TIF)
+
+```
+
+Range  |  Values 
+-------|------------------------------------------------
+Lowest | `r ifelse(is.na(x$Low), 'None', x$Low)`    
+Highest | `r x$Hi`                                     
+
+
+
+
+
+##TRAVTIME 
+The distribution of TRAVTIME is skewed to the left with several outliers.
+```{r travtime, echo=FALSE, message=FALSE, warning=FALSE}
+par(mfrow=c(1,2))
+travtimeDensity <- density(as.numeric(insurance_train$TRAVTIME))
+plot(travtimeDensity, main="Distance to Work")
+polygon(travtimeDensity, col="red", border="red")
+
+boxplot(as.numeric(insurance_train$TRAVTIME, main="Distance to Work"), col="blue")
+```
+
+###Extreme Observations
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+x <- get_outliers(insurance_train$TRAVTIME)
+
+```
+
+Range  |  Values 
+-------|-------------
+Lowest | `r ifelse(is.na(x$Low), 'None', x$Low)`    
+Highest | `r x$Hi`  
+
+
+
+
+##YOJ 
+The YOJ distribution is close to normally distributed. There are outliers at both the lower and upper ends.
+```{r yoj, echo=FALSE, message=FALSE, warning=FALSE}
+par(mfrow=c(1,2))
+yojDensity <- density(na.omit(insurance_train$YOJ))
+plot(yojDensity, main="Years on Job")
+polygon(yojDensity, col="red", border="red")
+
+boxplot(as.numeric(insurance_train$YOJ, main="Years on Job"), col="blue")
+```
+
+###Extreme Observations
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+x <- get_outliers(insurance_train$YOJ)
+
+```
+
+Range  |  Values 
+-------|--------------
+Lowest | `r ifelse(is.na(x$Low), 'None', x$Low)`   
+Highest | `r x$Hi`     
+
+
+
+## Multicollinearity
+
+This section will test the predictor variables to determine if there is correlation among them. Variance inflaction factor (VIF) is used to detect multicollinearity, specifically among the entire set of predictors versus within pairs of variables.
+
+Testing for collinearity among the predictor variables, we see that  none of the numeric predictor variables appear to have a problem with collinearity based on their low VIF scores.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+numeric_fields <- dplyr::select_if(insurance_train, is.numeric)[, 3:15]
+
+usdm::vifcor(numeric_fields) 
+```
+
+
+
+#Data Preparation
+
+##Missing Values
+The majority of cases are complete. Of concern are the 2 predictor variables (CAR_AGE, YOJ) that have more than 5% of missing values. However, the majority of variables have less than 10 missing values.
+
+Predictors without missing values that contain zero values are possible indication zero values are actually missing values. For instance, predictors HOME_VAL and INCOME have zero values which are highly unlikely.
+
+```{r  echo=FALSE, message=FALSE, warning=FALSE}
+df <- setNames(data.frame(colSums(insurance_train==0, na.rm = T)), 'Count')
+           
+df$Variable <- rownames(df)
+
+rownames(df) <- NULL
+
+df %>% filter(!Variable %in% c("TARGET_FLAG", "TARGET_AMT")) %>%  
+ggplot(aes(x=reorder(Variable, Count), y=Count, fill=Count)) +
+    geom_bar(stat="identity") + coord_flip() + guides(fill=FALSE) +
+    xlab("Variable") + ylab("Number of 0 Values") + 
+    ggtitle("Count of Zero Values by Variable") +
+    geom_text(aes(label=Count), vjust=.5, hjust=-.1,position= position_dodge(width=0.5),size=3,  color="black")
+
+```
+
+The missing data patterns show that 7,213 out of 8,161 are complete observations, 6 observations are missing the AGE predictor, 432 observations are missing YOJ, 488 observations are missing CAR_AGE and 22 observations are missing YOJ and CAR_AGE. 
+
+```{r missing values, echo=FALSE, message=FALSE, warning=FALSE}
+#Examine missing data pattern
+md.pattern(insurance_train)
+
+#Number of missing
+aggr(insurance_train, prop = T, numbers = T)
+```
+
+##Assumptions of Missing Values
+
+The missing home value data for students and income data for home maker was replaced with zero. This decision was made after examination of the dataset. It is possible that students did not enter home value data because many students does not own a home. Missing income data for home makers maybe due to no information entered since home makers don't typically earn an income. 
+
+```{r missing evaluation, echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(insurance_train,
+       aes(x = HOME_VAL,
+           y = JOB)) +
+geom_point() +
+    facet_wrap(~JOB) +
+    ggtitle("Home Value by Profession")
+
+#Employment by income
+ggplot(insurance_train,
+       aes(x = INCOME,
+           y = JOB)) +
+geom_point() +
+    facet_wrap(~JOB) +
+    ggtitle("Income Value by Profession")
+
+#Replace student and missing HOME_VAL with 0
+insurance_train$INCOME <- as.numeric(str_replace_all(insurance_train$INCOME, "\\$|,", ""))
+insurance_train %>% mutate(HOME_VAL=replace(HOME_VAL, is.na(HOME_VAL) & JOB=="Student", 0)) -> insurance_train
+
+#Replace Home Maker and missing Income with 0
+insurance_train$INCOME <- as.numeric(str_replace_all(insurance_train$INCOME, "\\$|,", ""))
+insurance_train %>% mutate(INCOME=replace(INCOME, is.na(INCOME) & JOB=="Home Maker", 0)) -> insurance_train
+```
+
+#Recode Predictors
+
+```{r recode predictors, echo=FALSE, message=FALSE, warning=FALSE}
+recode_predictors <- function(insurance_df) {
+  
+  return_df <- within(insurance_df, {
+    
+    # convert income from a money format to numeric -
+    # INCOME, HOME_VAL, BLUEBOOK, OLDCLAIM
+    
+    INCOME <- as.numeric(str_replace_all(INCOME, "\\$|,", ""))
+    HOME_VAL <- as.numeric(str_replace_all(HOME_VAL, "\\$|,", ""))
+    BLUEBOOK <- as.numeric(str_replace_all(BLUEBOOK, "\\$|,", ""))
+    OLDCLAIM <- as.numeric(str_replace_all(OLDCLAIM, "\\$|,", ""))
+    
+    
+    #PARENT1#
+    
+    # Convert parent1, indicating.., from Yes/No values to 1 or 0 as an indicator or dummy variable
+    # Two levels: Yes, No
+    
+    SINGLE_PARENT <- ifelse(PARENT1=="Yes", 1, 0)  # Set Single Parent if Parent1 = "Yes"
+    PARENT1 <- NULL                                # drop PARENT1
+    
+    # MSTATUS #
+    
+    # Convert MSTATUS, indicating.., from Yes/No values to 1 or 0 as an indicator or dummy variable
+    # levels(insurance_train$MSTATUS)
+    # Two leves: Yes, z_NO
+    
+    MARRIED <- ifelse(MSTATUS=="Yes", 1, 0)    # Assign 1 to Married if MSTATUS="Yes" else 0 
+    MSTATUS <- NULL                                            # drop MSTATUS
+    
+    # SEX #
+    # Convert insurance_train$SEX, indicating.., from Yes/No values to 1 or 0 as an indicator or dummy variable
+    # Two leves: M, z_F
+    # levels(insurance_train$SEX)
+    
+    MALE <- ifelse(SEX=="M", 1, 0)              # Assign 1 to Male if Sex="M" else 0 for Female
+    SEX <- NULL                                 # drop SEX
+    
+    
+    AGE_RANGE <- cut(AGE,
+                     breaks = c(-Inf, 20 , 30, 40, 50, 60, 70, Inf),
+                     labels = c("10s", "20s", "30s", "40s", "50s", "60s", "70+"),
+                     right = FALSE)
+    
+    AGE_RANGE_16_19_YRS   <- ifelse(AGE_RANGE == "10s", 1, 0)
+    AGE_RANGE_20_29_YRS   <- ifelse(AGE_RANGE == "20s", 1, 0)
+    AGE_RANGE_30_39_YRS   <- ifelse(AGE_RANGE == "30s", 1, 0)
+    AGE_RANGE_40_49_YRS   <- ifelse(AGE_RANGE == "40s", 1, 0)
+    AGE_RANGE_50_59_YRS   <- ifelse(AGE_RANGE == "50s", 1, 0)
+    AGE_RANGE_60_69_YRS   <- ifelse(AGE_RANGE == "60s", 1, 0)
+    AGE_RANGE_70_YRS_PLUS <- ifelse(AGE_RANGE == "70+", 1, 0)
+    
+    # drop AGE_RANGE
+    AGE_RANGE <- NULL
+    
+    INEXP_DRIVER <- ifelse(AGE <= 21, 1, 0)
+    
+    # EDUCATION #
+    # Five leves: <High School, Bachelors, Masters, PhD, z_High School
+  
+    #levels(insurance_train$EDUCATION)
+  
+    EDU_HIGH_SCHOOL <- ifelse(EDUCATION=="<High School", 0, 1) 
+    EDU_COLLEGE <- ifelse(EDUCATION %in% c("Bachelors", "Masters", "PhD"), 1, 0)
+    EDU_ADV_DEGREE <- ifelse(EDUCATION %in% c("Masters", "PhD"), 1, 0) 
+    
+    EDUCATION <- NULL                                          # drop EDUCATION
+    
+    # JOB # 
+    # https://en.wikipedia.org/wiki/Designation_of_workers_by_collar_color
+    # levels(insurance_train$JOB)
+  
+    # This section classifies job types into collar designations (Team confirmation TBD
+    # Gold, White, Blue, Pink, 
+    
+    #EMPLOYED <- ifelse(JOB %in% c("Home Maker", "Student"), 0, 1) 
+    OCCUPATION_CLERICAL <- ifelse(JOB=="Clerical", 1, 0)
+    OCCUPATION_MANAGER <- ifelse(JOB=="Manager", 1, 0)
+    OCCUPATION_BLUE_COLLAR <- ifelse(JOB=="z_Blue Collar", 1, 0)
+    OCCUPATION_GOLD_COLLAR <- ifelse(JOB=="Doctor" | JOB=="Lawyer", 1, 0)
+    OCCUPATION_STUDENT <- ifelse(JOB=="Student", 1, 0)
+    OCCUPATION_HOME_MAKER <- ifelse(JOB=="Home Maker", 1, 0)
+    OCCUPATION_PROFESSIONAL <- ifelse(JOB=="Professional", 1, 0)
+    
+    JOB<-NULL
+    
+    # CAR_USE #
+    # Two leves: Commercial, Private  
+  
+    VEHICLE_USE_COMMERCIAL <- ifelse(CAR_USE=="Commercial", 1, 0)  # Assign 1 for Commercial use else 0 for Private 
+    CAR_USE <- NULL
+
+    # CAR_TYPE #
+  
+    # insurance_train %>% group_by(CAR_TYPE, CAR_USE) %>% tally()
+    # insurance_train %>% group_by(CAR_TYPE ) %>% tally()
+  
+    # This section classifies vehicles into 3 types -- car, SUV, or truck
+  
+   # https://www.automotivescience.com/pages/vehicle-class-division
+  
+    VEHICLE_CLASS_CAR <- ifelse(CAR_TYPE=="Sports Car", 1, 0)
+    VEHICLE_CLASS_SUV <- ifelse(CAR_TYPE %in% c("Minivan", "z_SUV"), 1, 0)
+    VEHICLE_CLASS_TRUCK  <- ifelse(CAR_TYPE %in% c("Van", "Pickup", "Panel Truck"), 1, 0)
+    SPORTS_CAR <- ifelse(CAR_TYPE=="Sports Car", 1, 0)
+    
+
+    
+    TRUCK_COMM <- ifelse(VEHICLE_CLASS_TRUCK & VEHICLE_USE_COMMERCIAL, 1, 0)
+    SUV_COMM <- ifelse(VEHICLE_CLASS_SUV & VEHICLE_USE_COMMERCIAL, 1, 0)
+    CAR_COMM <- ifelse(VEHICLE_CLASS_CAR & VEHICLE_USE_COMMERCIAL, 1, 0)
+    
+    # RED_CAR #
+    # Two levels: "no"  "yes"
+    #levels(insurance_train$RED_CAR)
+    
+    RED_CAR <- as.numeric(ifelse(RED_CAR == "yes", 1, 0))
+    
+    RED_SPORTS_CAR <- ifelse(RED_CAR & CAR_TYPE=="Sports Car", 1, 0)
+  
+    CAR_TYPE <- NULL                # drop CAR_TYPE
+    # REVOKED #
+    # levels(insurance_train$REVOKED)
+    # Two levels: "No"  "Yes"
+  
+    LICENSE_REVOKED <- ifelse(REVOKED=="Yes", 1, 0)
+    REVOKED <- NULL                                    # drop CAR_TYPE
+  
+    # URBANICITY #
+    # levels(insurance_train$URBANICITY)
+  
+    MAIN_DRIVING_CITY <- ifelse(URBANICITY=="Highly Urban/ Urban", 1, 0)
+    URBANICITY <- NULL                          # drop URBANICITY
+    
+    
+    CAR_AGE_RANGE <- cut(CAR_AGE,
+                     breaks = c(-Inf, 2 , 3, 5, 10, Inf),
+                     labels = c("1", "2-3", "3-5", "5-10", "10+"),
+                     right = FALSE)
+    
+    CAR_AGE_RANGE_1_YR <- ifelse(CAR_AGE_RANGE == "1", 1, 0)
+    CAR_AGE_RANGE_2_3_YRS <- ifelse(CAR_AGE_RANGE == "2-3", 1, 0)
+    CAR_AGE_RANGE_3_5_YRS <- ifelse(CAR_AGE_RANGE == "3-5", 1, 0)
+    CAR_AGE_RANGE_5_10_YRS <- ifelse(CAR_AGE_RANGE == "5-10", 1, 0)
+    CAR_AGE_RANGE_10_YRS_PLUS <- ifelse(CAR_AGE_RANGE == "10+", 1, 0)
+   
+    CAR_AGE_RANGE <- NULL
+    
+  })
+  
+  return_df %>% dplyr::select(-contains('insurance_train')) -> return_df
+  
+  #print(colnames(return_df))
+    
+  return_df %>%
+    # reorder columns
+    dplyr::select(TARGET_FLAG:KIDSDRIV, MALE, MARRIED, SINGLE_PARENT,  LICENSE_REVOKED,
+                  AGE, AGE_RANGE_16_19_YRS, AGE_RANGE_20_29_YRS, AGE_RANGE_30_39_YRS, 
+                  AGE_RANGE_40_49_YRS, AGE_RANGE_50_59_YRS, AGE_RANGE_60_69_YRS, AGE_RANGE_70_YRS_PLUS,
+                  INEXP_DRIVER,
+                  HOMEKIDS:TIF,
+                  OLDCLAIM:CAR_AGE, 
+                  CAR_AGE_RANGE_1_YR, CAR_AGE_RANGE_2_3_YRS, CAR_AGE_RANGE_3_5_YRS,
+                  CAR_AGE_RANGE_5_10_YRS, CAR_AGE_RANGE_10_YRS_PLUS, 
+                  MAIN_DRIVING_CITY,  RED_CAR,
+                  EDU_HIGH_SCHOOL, EDU_COLLEGE, EDU_ADV_DEGREE, 
+                  VEHICLE_USE_COMMERCIAL, VEHICLE_CLASS_TRUCK:VEHICLE_CLASS_CAR, SPORTS_CAR, RED_SPORTS_CAR,
+                  TRUCK_COMM, SUV_COMM, CAR_COMM, OCCUPATION_CLERICAL, OCCUPATION_MANAGER,
+                  OCCUPATION_BLUE_COLLAR, OCCUPATION_GOLD_COLLAR, OCCUPATION_STUDENT, OCCUPATION_HOME_MAKER,
+                  OCCUPATION_PROFESSIONAL
+           )  -> return_df
+  
+
+  return (return_df)
+}
+
+
+# call the transform function
+
+x2 <- recode_predictors(insurance_train)
+
+colnames(x2)
+
+## ============================================================================
+
+
+#str(x2)
+
+#write.csv(x2, 'insurance_training_data_T.csv', row.names = F)
+```
+#Transform data - Logistic Regression Dataset
+```{r}
+insurance_trainingT <- read.csv( "https://raw.githubusercontent.com/621-Group2/HW4/master/insurance_training_data_T.csv")
+
+x1 <- glm(TARGET_FLAG ~., family= binomial(), data = insurance_trainingT)
+car::mmps(x1)
+```
+
+
+#Imput Recoded dataset
+```{r impute, echo=FALSE, message=FALSE, warning=FALSE}
+insurance_training_dataT <- read.csv( "https://raw.githubusercontent.com/621-Group2/HW4/master/insurance_training_data_T.csv")
+
+insurance_train_impute <- mice(insurance_training_dataT,m=3,maxit=50,meth='cart',seed=500)
+summary(insurance_train_impute)
+
+#inspect imputed data
+#densityplot(insurance_train_impute)
+
+```
+
+
+
+
+
