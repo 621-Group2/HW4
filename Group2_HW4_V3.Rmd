@@ -872,6 +872,8 @@ summary(insurance_train_impute)
 #inspect imputed data
 #densityplot(insurance_train_impute)
 
+
+#Sharon's impute code
 insurance_training_dataT <- read.csv( "https://raw.githubusercontent.com/621-Group2/HW4/master/insurance_training_data_T.csv")
 
 insurance_train_impute <- mice(insurance_training_dataT,m=3,maxit=50,meth='cart',seed=500)
@@ -880,7 +882,6 @@ summary(insurance_train_impute)
 #inspect imputed data
 densityplot(insurance_train_impute)
 
-#Sharon's impute code
 #Check imputed values
 insurance_train_impute$imp$AGE
 
