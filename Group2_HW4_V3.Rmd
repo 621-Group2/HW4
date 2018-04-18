@@ -133,9 +133,8 @@ insurance_train %>% summarize_all(funs(sum(is.na(.)) / length(.)))
 There is high correlation amoung several predictors CLM_FREQ and MVR_PTS; KIDSDRV and AGE; GET_FLAT and TARGET_AMT; AGE and HOMEKIDS. 
 
 ```{r correlation, echo=FALSE, message=FALSE, warning=FALSE}
-ggcorr(insurance_train)
+ggcorr(insurance_train, method = "pairwise", label=TRUE, nbreaks=6)
 
-corrplot::corrplot(insurance_train, method = "number")
 
 ```
 
@@ -872,6 +871,25 @@ summary(insurance_train_impute)
 
 #inspect imputed data
 #densityplot(insurance_train_impute)
+
+insurance_training_dataT <- read.csv( "https://raw.githubusercontent.com/621-Group2/HW4/master/insurance_training_data_T.csv")
+
+insurance_train_impute <- mice(insurance_training_dataT,m=3,maxit=50,meth='cart',seed=500)
+summary(insurance_train_impute)
+
+#inspect imputed data
+densityplot(insurance_train_impute)
+
+#Sharon's impute code
+#Check imputed values
+insurance_train_impute$imp$AGE
+
+head(insurance_train_impute)
+
+#get complete data ( 2nd out of 3)
+ completeData <- complete(insurance_train_impute,2)
+ 
+ write.csv(completeData, 'insurance_training_Impute.csv', row.names = F)
 
 ```
 
