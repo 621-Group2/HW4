@@ -1,0 +1,1737 @@
+---
+title: 'Group#2 Homework #4'
+author: "Group 2"
+date: "4/8/2018"
+output:
+  html_document: default
+  pdf_document:
+    latex_engine: lualatex
+  word_document: default
+---
+
+#Introduction
+Group 2 of the DATA621 class was asked to analyze and model a data sent containing approximately 8,000 with 2 response and 23 predictor variables, records representing a customer at an auto insurance company. 
+
+Each record has two response variables. The first response variable, TARGET_FLAG which is binary (0,1). If someone was in car crash the value is 1 and if the person was not in a car cash the value is 0. 
+
+The second response variable is TARGET_ATM. If someone was in a car cash the value is 1 and if they did not crash their car the value is greater than 0.
+
+#Objective 
+The objective is to build multiple linear regression and binary logistic regression models on the training data to predict the probability that a person will crash their car and also the amount of money it will cost if the person does crash their car. 
+
+Only the variables that are given or variables derived from the variables provided. 
+
+#Approach
+The team met to discuss this assignment and an approach for completing the assignment. Each of the 5 team members was assigned tasks. The following tasks were assigned:
+
+Data Exploration
+*Data Preparation
+*Build Models
+*Select Models
+
+Github was used to manage the project. Using Github helped with version control and ensured each team member had access to the latest version of the project documentation.
+
+Slack was used for daily communication during the project and for quick access to code and documentation. Meeting were organized at least twice a week and as needed using "Go to Meetings".
+
+#Data Exploration and Data Preparation
+Since the data sets were provided, it was crucial that we understand the data set and determine whether any missing values are present.
+
+#Model Building and Selection
+Based on the objective of the project, several logistic, multiple and robust regression models were built.
+
+##Team Members
+-Valerie Briot
+-Michael D'acampora
+-Keith Folsom
+-Brian Kreis
+-Sharon Morris
+
+
+
+```{r libraries, echo=FALSE, message=FALSE, warning=FALSE}
+
+library(psych)
+library(GGally)
+#library(ggplot2)
+library(reshape)
+library(VIM)
+library(mice)
+#library(stringr)
+#library(dplyr)
+library(car)
+library(usdm)
+library(tidyverse)
+#library(stringr)
+library(DataExplorer)
+library(knitr)
+library(corrplot)
+library(MASS)
+#library(tinytex)
+library(ggfortify)
+library(caret)
+library(pROC)
+library(robust)
+library(robustbase)
+library(pscl)
+library(MKmisc)
+library(Metrics)  # for lm metric calculation
+
+library(gvlma)  ## only used for confirming model assumptions
+
+options(scipen=999)
+
+```
+#Dataset
+For reproducibility of the results, the data was loaded to and accessed from a Github repository. 
+
+```{r Read data, echo=FALSE, message=FALSE, warning=FALSE}
+insurance_train <- read.csv("https://raw.githubusercontent.com/621-Group2/HW4/master/insurance_training_data.csv", header=TRUE, sep=",")
+
+#Remove the index from tehd dataset
+insurance_train$INDEX <- NULL
+
+insurance_train$INCOME <- as.numeric(str_replace_all(insurance_train$INCOME, "\\$|,", ""))
+insurance_train$HOME_VAL <- as.numeric(str_replace_all(insurance_train$HOME_VAL, "\\$|,", ""))
+insurance_train$BLUEBOOK <- as.numeric(str_replace_all(insurance_train$BLUEBOOK, "\\$|,", ""))
+insurance_train$OLDCLAIM <- as.numeric(str_replace_all(insurance_train$OLDCLAIM, "\\$|,", ""))
+
+# get_outliers function
+get_outliers <-  function(x, n = 10) {
+  
+  bp <- boxplot.stats(x)
+  
+  obs_hi <- unique(x[which(x > bp$stats[5])])
+
+  if (length(obs_hi) < n) { n <- length(obs_hi) }
+
+  hi <- sort(obs_hi, decreasing = T)[1:n]
+  
+  obs_low <- unique(x[which(x < bp$stats[1])])
+
+  if (length(obs_low) < n) { n <- length(obs_low) }
+
+  low <- sort(obs_low, decreasing = T)[1:n]
+
+  return (list(Hi=hi, Low=low))
+  
+}  
+
+
+```
+#Data Exploration and Statistic Measures
+The purpose of the data exploration and statistic measures phase is to understand the data to determine how to process the dataset for modelling. 
+
+##Missing Values
+The majority of variables do not contain missing values. The predictor CAR_AGE (Vehicle Age) contains 510 missing values, YOJ(Years on Job) contain 454, income (INCOME) 445 and home value (HOME_VAL) 464 missing values.
+
+The visualization of missing values below shows that missing values of CAR_AGE, HOME_VAL and YOJ are at 6 percent while INCOME is at 5 percent. The dataset was imputed to account for the missing values. 
+
+```{r miss, echo=FALSE, message=FALSE, warning=FALSE}
+
+kable(sapply(insurance_train, function(x) sum(is.na(x))))
+
+```
+
+```{r miss_plot, echo=FALSE, message=FALSE, warning=FALSE}
+
+plot_missing(insurance_train, title="Insurance Dataset - Missing Values (%)")
+
+```
+
+##Variable to Variable Analysis
+```{r data exploration, echo=FALSE, message=FALSE, warning=FALSE}
+variableNames <- c("TARGET_FLAG", "TARGET_AMT", "AGE", "BLUEBOOK", "CAR_AGE", "CAR_TYPE", "CAR_USE", "CLM_FREQ", "EDUCATION", "HOMEKIDS", "HOME_VAL", "INCOME", 
+"JOB", "KIDSDRIV", "MSTATUS", "MVR_PTS", "OLDCLAIM", "PARENT1", "RED_CAR", "REVOKED", "SEX", "TIF", "TRAVTIME", "URBANICITY", "YOJ")
+
+definition <- c("Was Car in a crash? 1=YES 0=NO", "If car was in a crash, what was the cost", "Age of Driver", "Value of Vehicle", "Vehicle Age", "Type of Car", "Vehicle Use", "# Claims (Past 5 Years)", "Max Education Level", "# Children at Home", "Home Value", "Income", "Job Category", "# Driving Children", "Marital Status", "Motor Vehicle Record Points", "Total Claims (Past 5 Years)", "Single Parent", "A Red Car", "License Revoked (Past 7 Years)", "Gender", "Time in Force", "Distance to Work", "Home/Work Area", "Years on Job")
+
+variableType <- c("Response", "Response", "Predictor", "Predictor", "Predictor", "Predictor", "Predictor", "Predictor", "Predictor", "Predictor", "Predictor", "Predictor", "Predictor", "Predictor", "Predictor", "Predictor", "Predictor", "Predictor", "Predictor", "Predictor", "Predictor", "Predictor", "Predictor", "Predictor", "Predictor")
+
+dfInsurance_md <- cbind.data.frame (variableNames, definition, variableType)
+
+colnames(dfInsurance_md) <- c("Variable Name", "Definition", "Variable Type") 
+knitr::kable(dfInsurance_md)
+```
+
+##Descriptive Statistics
+
+Descriptive statistics was performed for all predictor and response variables to explore the data. 
+
+```{r descriptive statistics, echo=FALSE, message=FALSE, warning=FALSE}
+#Calculate mean missing values per variable
+insurance_train %>% summarize_all(funs(sum(is.na(.)) / length(.)))
+
+#Use Describe Package to calculate Descriptive Statistic
+(InsuranceTrain_des <- describe(insurance_train, na.rm=TRUE, interp=FALSE, skew=TRUE, ranges=TRUE, trim=.1, type=3, check=TRUE, fast=FALSE, quant=c(.1,.25,.75,.90), IQR=TRUE))
+
+```
+
+##Correlation Analysis
+The correlation matrix shown below highlights correlations among several predictor variables. Correlation between between claims in the past 5 years (CLM_FREQ) and motor vechile recorded points (MVR_PTS); driving children(KIDSDRV) and age of driver (AGE) is very high at 0.67. 
+
+The tables below represent correlation between response and predictor variables.
+
+```{r correlation, echo=FALSE, message=FALSE, warning=FALSE}
+ggcorr(insurance_train, method = "pairwise", label=TRUE, nbreaks=6)
+
+
+```
+
+
+#### Correlation with Outcome Variable - TARGET_FLAG
+
+VARIABLE   |   CORRELATION WITH TARGET_FLAG  
+-----------|----------------------------------------
+KIDSDRIV | `r cor(insurance_train$TARGET_FLAG, insurance_train$KIDSDRIV, use="complete.obs")`  
+AGE | `r cor(insurance_train$TARGET_FLAG, insurance_train$AGE, use="complete.obs")`  
+HOMEKIDS | `r cor(insurance_train$TARGET_FLAG, insurance_train$HOMEKIDS, use="complete.obs")`  
+YOJ | `r cor(insurance_train$TARGET_FLAG, insurance_train$YOJ , use="complete.obs")`  
+INCOME | `r cor(insurance_train$TARGET_FLAG, insurance_train$INCOME, use="complete.obs")`  
+HOME_VAL | `r cor(insurance_train$TARGET_FLAG, insurance_train$HOME_VAL, use="complete.obs")`
+TRAVTIME | `r cor(insurance_train$TARGET_FLAG, insurance_train$TRAVTIME, use="complete.obs")`  
+BLUEBOOK | `r cor(insurance_train$TARGET_FLAG, insurance_train$BLUEBOOK, use="complete.obs")`  
+TIF | `r cor(insurance_train$TARGET_FLAG, insurance_train$TIF, use="complete.obs")`  
+OLDCLAIM | `r cor(insurance_train$TARGET_FLAG, insurance_train$OLDCLAIM, use="complete.obs")`  
+CLM_FREQ | `r cor(insurance_train$TARGET_FLAG, insurance_train$CLM_FREQ, use="complete.obs")`  
+MVR_PTS | `r cor(insurance_train$TARGET_FLAG, insurance_train$MVR_PTS, use="complete.obs")`  
+CAR_AGE | `r cor(insurance_train$TARGET_FLAG, insurance_train$CAR_AGE, use="complete.obs")`  
+
+
+#### Correlation with Outcome Variable - TARGET_AMT
+
+VARIABLE   |   CORRELATION WITH TARGET_AMT
+-----------|----------------------------------------
+KIDSDRIV | `r cor(insurance_train$TARGET_AMT, insurance_train$KIDSDRIV, use="complete.obs")`  
+AGE | `r cor(insurance_train$TARGET_AMT, insurance_train$AGE, use="complete.obs")`  
+HOMEKIDS | `r cor(insurance_train$TARGET_AMT, insurance_train$HOMEKIDS, use="complete.obs")`  
+YOJ | `r cor(insurance_train$TARGET_AMT, insurance_train$YOJ , use="complete.obs")`  
+INCOME | `r cor(insurance_train$TARGET_AMT, insurance_train$INCOME, use="complete.obs")`  
+HOME_VAL | `r cor(insurance_train$TARGET_AMT, insurance_train$HOME_VAL, use="complete.obs")`
+TRAVTIME | `r cor(insurance_train$TARGET_AMT, insurance_train$TRAVTIME, use="complete.obs")`  
+BLUEBOOK | `r cor(insurance_train$TARGET_AMT, insurance_train$BLUEBOOK, use="complete.obs")`  
+TIF | `r cor(insurance_train$TARGET_AMT, insurance_train$TIF, use="complete.obs")`  
+OLDCLAIM | `r cor(insurance_train$TARGET_AMT, insurance_train$OLDCLAIM, use="complete.obs")`  
+CLM_FREQ | `r cor(insurance_train$TARGET_AMT, insurance_train$CLM_FREQ, use="complete.obs")`  
+MVR_PTS | `r cor(insurance_train$TARGET_AMT, insurance_train$MVR_PTS, use="complete.obs")`  
+CAR_AGE | `r cor(insurance_train$TARGET_AMT, insurance_train$CAR_AGE, use="complete.obs")`
+
+
+
+##Analysis of predictors
+Each predictor was exam ed to determine whether transformation is needed.
+
+###KIDSDRIV
+The Driving Children variable is highly skewed to the right. The outliers are high.
+```{r KIDSDRIV, echo=FALSE, message=FALSE, warning=FALSE}
+#Density & box plots
+par(mfrow=c(1,2))
+kidDensity <- density(insurance_train$KIDSDRIV)
+plot(kidDensity, main="Driving Kids")
+polygon(kidDensity, col="red", border="red")
+
+boxplot(insurance_train$KIDSDRIV, main="Boxplot of Driving Kids", col="blue")
+
+```
+
+###Extreme Observations
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+x <- get_outliers(insurance_train$KIDSDRIV)
+
+```
+
+Range  |  Values      
+-------|-------------
+Lowest | `r ifelse(is.na(x$Low), 'None', x$low)`       
+Highest | `r x$Hi`    
+
+
+
+##AGE
+The AGE predictor is close to a normal distribution with high outliers of ages 72, 73, 76, 80 & 81 and low 16, 17 and 18.
+```{r age, echo=FALSE, message=FALSE, warning=FALSE}
+par(mfrow=c(1,2))
+ageDensity <- density(na.omit(insurance_train$AGE))
+plot(ageDensity, main="Age of Driver")
+polygon(ageDensity, col="red", border="red")
+
+boxplot(insurance_train$AGE, main="Boxplot Age of Driver", col="blue")
+
+```
+
+###Extreme Observations
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+x <- get_outliers(insurance_train$AGE)
+
+```
+
+Range  |  Values   
+-------|-------------
+Lowest | `r ifelse(is.na(x$Low), "None", x$Low)`     
+Highest | `r x$Hi`    
+
+
+
+
+##BLUEBOOK
+The predictor of car value BLUEBOOK is slightly skewed to the right. There are some outliers a the higher car value level.
+```{r bluebook, echo=FALSE, message=FALSE, warning=FALSE}
+par(mfrow=c(1,2))
+bBookDensity <- density(as.numeric(insurance_train$BLUEBOOK))
+plot(bBookDensity, main="Value of Vehicle")
+polygon(bBookDensity, col="red", border="red")
+
+boxplot(as.numeric(insurance_train$BLUEBOOK, main="Boxplot Value of Vehicle"), col="blue")
+
+```
+
+###Extreme Observations
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+x <- get_outliers(insurance_train$BLUEBOOK) 
+
+```
+
+Range  |  Values      
+-------|------------------------------------------------------------------------
+Lowest | `r ifelse(is.na(x$Low), 'None', x$Low)`                                
+Highest | `r ifelse(is.na(x$Hi), 'None', x$Hi)`      
+
+
+##CAR_AGE 
+The distribution is normal. There are are no outliers.
+```{r car_age, echo=FALSE, message=FALSE, warning=FALSE}
+par(mfrow=c(1,2))
+car_ageDensity <- density(na.omit(insurance_train$AGE))
+plot(car_ageDensity, main="Vehicle Age")
+polygon(car_ageDensity, col="red", border="red")
+
+boxplot(insurance_train$AGE, main="Boxplot Vehicle Age", col="blue")
+
+```
+
+###Extreme Observations
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+x <- get_outliers(insurance_train$CAR_AGE)
+
+```
+
+Range  |  Values   
+-------|-------------
+Lowest | `r ifelse(is.na(x$Low), 'None', x$Low)`   
+Highest | `r ifelse(is.na(x$Hi), 'None', x$Hi)` 
+
+
+##CAR_TYPE 
+z_SUV and Minivan are majority of vehicles insured.
+```{r car_type, echo=FALSE, message=FALSE, warning=FALSE}
+
+ggplot(insurance_train, aes(CAR_TYPE)) + 
+  geom_bar(fill = "red", width = 0.7) + 
+  xlab("Type of Car") + ylab("Number of Observations")
+
+
+table(insurance_train$CAR_TYPE)
+```
+##CAR_USE
+The majority of cars are privately used.
+```{r car_use, echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(insurance_train, aes(x = CAR_USE)) + 
+  geom_bar(fill = "red", width = 0.7) + 
+  xlab("Vehicle Use") + ylab("Number of Observations")
+
+table(insurance_train$CAR_USE)
+```
+##CLM_FREQ 
+The distribution of claims is multi modal. With the largest number of claims occurring before year 1. There are no outliers
+```{r clm_freq, echo=FALSE, message=FALSE, warning=FALSE}
+par(mfrow=c(1,2))
+clm_freqDensity <- density(as.numeric(insurance_train$CLM_FREQ))
+plot(clm_freqDensity, main="# Claims (Past 5 Years)  ")
+polygon(clm_freqDensity, col="red", border="red")
+
+boxplot(insurance_train$CLM_FREQ, main="# Claims (Past 5 Years)", col="blue")
+```
+
+###Extreme Observations
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+x <- get_outliers(insurance_train$CLM_FREQ)
+
+```
+
+Range  |  Values 
+-------|------------
+Lowest | `r ifelse(is.na(x$Low), 'None', x$Low)`     
+Highest | `r ifelse(is.na(x$Hi), 'None', x$Hi)`  
+
+
+##EDUCATION
+Ther majority of insurers are college or high school graduates. 
+```{r education, echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(insurance_train, aes(x = EDUCATION)) + 
+  geom_bar(fill = "red", width = 0.7) + 
+  xlab("Type of Car") + ylab("Max Education Level")
+
+table(insurance_train$EDUCATION)
+```
+
+##HOMEKIDS 
+The distribution of HOMEKIDS is multimodal. The majority of customers do not have any children. There are some outliers.
+```{r homekids, echo=FALSE, message=FALSE, warning=FALSE}
+par(mfrow=c(1,2))
+homekidsDensity <- density(as.numeric(insurance_train$HOMEKIDS))
+plot(homekidsDensity, main="# Children at Home")
+polygon(homekidsDensity, col="red", border="red")
+
+boxplot(as.numeric(insurance_train$HOMEKIDS, main="# Children at Home "), col="blue")
+```
+
+
+###Extreme Observations
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+x <- get_outliers(insurance_train$HOMEKIDS)
+
+```
+
+Range  |  Values   
+-------|-------------
+Lowest | `r ifelse(is.na(x$Low), 'None', x$Low)`     
+Highest | `r x$Hi`    
+
+
+
+##HOME_VAL 
+The distribution of HOME_VAL is skewed to the left. There are negative values that will require further exploration. There are several outliers on the higher end.
+```{r home_val, echo=FALSE, message=FALSE, warning=FALSE}
+par(mfrow=c(1,2))
+home_valDensity <- density(as.numeric(insurance_train$HOME_VAL), na.rm = T)
+plot(home_valDensity, main="Home Value")
+polygon(home_valDensity, col="red", border="red")
+
+boxplot(as.numeric(insurance_train$HOME_VAL, main="Home Value"), col="blue")
+```
+
+
+###Extreme Observations
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+x <- get_outliers(insurance_train$HOME_VAL)
+
+```
+
+Range  |  Values   
+-------|---------------------------------------------------------------
+Lowest | `r ifelse(is.na(x$Low), 'None', x$Low)`                       
+Highest | `r x$Hi`      
+
+
+##INCOME 
+The distribution INCOME has uni modal and skewed to the right. There are several outliers on the higher end.
+```{r income, echo=FALSE, message=FALSE, warning=FALSE}
+par(mfrow=c(1,2))
+incomeDensity <- density(as.numeric(insurance_train$INCOME), na.rm = T)
+plot(incomeDensity, main="Income")
+polygon(incomeDensity, col="red", border="red")
+
+boxplot(as.numeric(insurance_train$INCOME, main="Income"), col="blue")
+```
+
+###Extreme Observations
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+x <- get_outliers(insurance_train$INCOME)
+
+```
+
+Range  |  Values                                                   
+-------|-------------------------------------------------------- 
+Lowest | `r ifelse(is.na(x$Low), 'None', x$Low)`                                              
+Highest | `r ifelse(is.na(x$Hi), 'None', x$Hi)`                                                              
+
+
+
+##JOB
+The majority of customers work in blue collar jobs. 
+```{r}
+ggplot(insurance_train, aes(x = JOB)) + 
+  geom_bar(fill = "red", width = 0.7) + 
+  xlab("Job Category") + ylab("V")
+
+table(insurance_train$JOB)
+```
+##MSTATUS 
+The majority of customers are married.
+```{r mstatus, echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(insurance_train, aes(x = MSTATUS)) + 
+  geom_bar(fill = "red", width = 0.7) + 
+  xlab("Marital Status") + ylab("V")
+
+table(insurance_train$MSTATUS)
+```
+
+##MVR_PTS  
+The distribution of the MVR_PTS is skewed to the right. There are outliers on the higher end. 
+```{r job, echo=FALSE, message=FALSE, warning=FALSE}
+par(mfrow=c(1,2))
+mvr_ptsDensity <- density(insurance_train$MVR_PTS)
+plot(mvr_ptsDensity, main="Motor Vehicle Record Points")
+polygon(mvr_ptsDensity, col="red", border="red")
+
+boxplot(insurance_train$MVR_PTS, main="Motor Vehicle Record Points", col="blue")
+```
+
+###Extreme Observations
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+x <- get_outliers(insurance_train$MVR_PTS)
+
+```
+
+Range  |  Values 
+-------|-------------
+Lowest | `r ifelse(is.na(x$Low), 'None', x$Low)`    
+Highest | `r ifelse(is.na(x$Hi), 'None', x$Hi)`
+
+
+
+##OLDCLAIM 
+The distribution OLDCLAIM is highly skewed to the left. There are several outliers on the higher end.
+```{r oldclaim, echo=FALSE, message=FALSE, warning=FALSE}
+par(mfrow=c(1,2))
+oldclaimDensity <- density(as.numeric(insurance_train$OLDCLAIM))
+plot(oldclaimDensity, main="Total Claims (Past 5 Years) ")
+polygon(oldclaimDensity, col="red", border="red")
+
+boxplot(as.numeric(insurance_train$OLDCLAIM, main="Total Claims (Past 5 Years) "), col="blue")
+```
+
+###Extreme Observations
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+x <- get_outliers(insurance_train$OLDCLAIM)
+
+```
+
+Range  |  Values 
+-------|------------------------------------------------------------------
+Lowest | `r ifelse(is.na(x$Low), 'None', x$Low)`                           
+Highest | `r ifelse(is.na(x$Hi), 'None', x$Hi)`                                                       
+
+
+
+##PARENT1
+The majority of customers are not single parents.
+```{r parent1, echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(insurance_train, aes(x = PARENT1)) + 
+  geom_bar(fill = "red", width = 0.7) + 
+  xlab("Single Parent ") + ylab("V")
+
+table(insurance_train$PARENT1)
+```
+##RED_CAR 
+The majority of the cars are not red.
+```{r red_car, echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(insurance_train, aes(x = RED_CAR)) + 
+  geom_bar(fill = "red", width = 0.7) + 
+  xlab("A Red Car ") + ylab("V")
+
+table(insurance_train$RED_CAR)
+```
+
+##TIF 
+The distribution of TIF is skewed to the right with several outliers.
+```{r tif, echo=FALSE, message=FALSE, warning=FALSE}
+par(mfrow=c(1,2))
+tifDensity <- density(as.numeric(insurance_train$TIF))
+plot(tifDensity, main="Time in Force")
+polygon(tifDensity, col="red", border="red")
+
+boxplot(as.numeric(insurance_train$TIF, main="Time in Force"), col="blue")
+```
+
+###Extreme Observations
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+x <- get_outliers(insurance_train$TIF)
+
+```
+
+Range  |  Values 
+-------|------------------------------------------------
+Lowest | `r ifelse(is.na(x$Low), 'None', x$Low)`    
+Highest | `r x$Hi`                                     
+
+
+##TRAVTIME 
+The distribution of TRAVTIME is skewed to the right with several outliers.
+```{r travtime, echo=FALSE, message=FALSE, warning=FALSE}
+par(mfrow=c(1,2))
+travtimeDensity <- density(as.numeric(insurance_train$TRAVTIME))
+plot(travtimeDensity, main="Distance to Work")
+polygon(travtimeDensity, col="red", border="red")
+
+boxplot(as.numeric(insurance_train$TRAVTIME, main="Distance to Work"), col="blue")
+```
+
+###Extreme Observations
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+x <- get_outliers(insurance_train$TRAVTIME)
+
+```
+
+Range  |  Values 
+-------|-------------
+Lowest | `r ifelse(is.na(x$Low), 'None', x$Low)`    
+Highest | `r x$Hi`  
+
+
+##YOJ 
+The YOJ distribution is close to normally distributed. There are outliers at both the lower and upper ends.
+```{r yoj, echo=FALSE, message=FALSE, warning=FALSE}
+par(mfrow=c(1,2))
+yojDensity <- density(na.omit(insurance_train$YOJ))
+plot(yojDensity, main="Years on Job")
+polygon(yojDensity, col="red", border="red")
+
+boxplot(as.numeric(insurance_train$YOJ, main="Years on Job"), col="blue")
+```
+
+###Extreme Observations
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+x <- get_outliers(insurance_train$YOJ)
+
+```
+
+Range  |  Values 
+-------|--------------
+Lowest | `r ifelse(is.na(x$Low), 'None', x$Low)`   
+Highest | `r x$Hi`     
+
+
+
+## Multicollinearity
+
+This section will test the predictor variables to determine if there is correlation among them. Variance inflaction factor (VIF) is used to detect multicollinearity, specifically among the entire set of predictors versus within pairs of variables.
+
+Testing for collinearity among the predictor variables, we see that  none of the numeric predictor variables appear to have a problem with collinearity based on their low VIF scores.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+numeric_fields <- dplyr::select_if(insurance_train, is.numeric)[, 3:15]
+
+usdm::vifcor(numeric_fields) 
+```
+
+
+
+#Data Preparation
+
+##Missing Values
+The majority of cases are complete. Te concern are the 2 predictor variables (CAR_AGE, YOJ) that have more than 5% of missing values. 
+
+Predictors without missing values that contain zero values are possible indication zero values are actually missing values. For instance, predictors HOME_VAL and INCOME have zero values which are highly unlikely.
+
+```{r  echo=FALSE, message=FALSE, warning=FALSE}
+df <- setNames(data.frame(colSums(insurance_train==0, na.rm = T)), 'Count')
+           
+df$Variable <- rownames(df)
+
+rownames(df) <- NULL
+
+df %>% filter(!Variable %in% c("TARGET_FLAG", "TARGET_AMT")) %>%  
+ggplot(aes(x=reorder(Variable, Count), y=Count, fill=Count)) +
+    geom_bar(stat="identity") + coord_flip() + guides(fill=FALSE) +
+    xlab("Variable") + ylab("Number of 0 Values") + 
+    ggtitle("Count of Zero Values by Variable") +
+    geom_text(aes(label=Count), vjust=.5, hjust=-.1,position= position_dodge(width=0.5),size=3,  color="black")
+
+```
+
+The missing data patterns show that 7,213 out of 8,161 are complete observations, 6 observations are missing the AGE predictor, 432 observations are missing YOJ, 488 observations are missing CAR_AGE and 22 observations are missing YOJ and CAR_AGE. 
+
+```{r missing values, echo=FALSE, message=FALSE, warning=FALSE}
+#Examine missing data pattern
+md.pattern(insurance_train)
+
+#Number of missing
+aggr(insurance_train, prop = T, numbers = T)
+```
+
+##Assumptions of Missing Values
+
+The missing home value data for students and income data for home maker were replaced with zero. This decision was made after examination of the dataset. It is possible that students did not enter home value data because many students does not own a home. Missing income data for home makers maybe due to no information entered since home makers don't typically earn an income. 
+
+```{r missing evaluation, echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(insurance_train,
+       aes(x = HOME_VAL,
+           y = JOB)) +
+geom_point() +
+    facet_wrap(~JOB) +
+    ggtitle("Home Value by Profession")
+
+#Employment by income
+ggplot(insurance_train,
+       aes(x = INCOME,
+           y = JOB)) +
+geom_point() +
+    facet_wrap(~JOB) +
+    ggtitle("Income Value by Profession")
+
+#Replace student and missing HOME_VAL with 0
+insurance_train$INCOME <- as.numeric(str_replace_all(insurance_train$INCOME, "\\$|,", ""))
+insurance_train %>% mutate(HOME_VAL=replace(HOME_VAL, is.na(HOME_VAL) & JOB=="Student", 0)) -> insurance_train
+
+#Replace Home Maker and missing Income with 0
+insurance_train$INCOME <- as.numeric(str_replace_all(insurance_train$INCOME, "\\$|,", ""))
+insurance_train %>% mutate(INCOME=replace(INCOME, is.na(INCOME) & JOB=="Home Maker", 0)) -> insurance_train
+```
+
+###Recoding of Predictor Variables
+
+The insurance dataset was recoded to the variables listed below.  Most recoding centered around converting factors to dummy variables.  Additionally, age-related fields such as AGE and CAR_AGE were also created a ranges for possible benefit during the modeling phase to potentially determine significance within specific ranges.
+
+![](recoded_variables.PNG){ width=100% }
+
+
+```{r recode predictors, echo=FALSE, message=FALSE, warning=FALSE}
+recode_predictors <- function(insurance_df) {
+  
+  return_df <- within(insurance_df, {
+    
+    # convert income from a money format to numeric -
+    # INCOME, HOME_VAL, BLUEBOOK, OLDCLAIM
+    
+    INCOME <- as.numeric(str_replace_all(INCOME, "\\$|,", ""))
+    HOME_VAL <- as.numeric(str_replace_all(HOME_VAL, "\\$|,", ""))
+    BLUEBOOK <- as.numeric(str_replace_all(BLUEBOOK, "\\$|,", ""))
+    OLDCLAIM <- as.numeric(str_replace_all(OLDCLAIM, "\\$|,", ""))
+    
+    
+    #PARENT1#
+    
+    # Convert parent1, indicating.., from Yes/No values to 1 or 0 as an indicator or dummy variable
+    # Two levels: Yes, No
+    
+    SINGLE_PARENT <- ifelse(PARENT1=="Yes", 1, 0)  # Set Single Parent if Parent1 = "Yes"
+    PARENT1 <- NULL                                # drop PARENT1
+    
+    # MSTATUS #
+    
+    # Convert MSTATUS, indicating.., from Yes/No values to 1 or 0 as an indicator or dummy variable
+    # levels(insurance_train$MSTATUS)
+    # Two leves: Yes, z_NO
+    
+    MARRIED <- ifelse(MSTATUS=="Yes", 1, 0)    # Assign 1 to Married if MSTATUS="Yes" else 0 
+    MSTATUS <- NULL                                            # drop MSTATUS
+    
+    # SEX #
+    # Convert insurance_train$SEX, indicating.., from Yes/No values to 1 or 0 as an indicator or dummy variable
+    # Two leves: M, z_F
+    # levels(insurance_train$SEX)
+    
+    MALE <- ifelse(SEX=="M", 1, 0)              # Assign 1 to Male if Sex="M" else 0 for Female
+    SEX <- NULL                                 # drop SEX
+    
+    
+    AGE_RANGE <- cut(AGE,
+                     breaks = c(-Inf, 20 , 30, 40, 50, 60, 70, Inf),
+                     labels = c("10s", "20s", "30s", "40s", "50s", "60s", "70+"),
+                     right = FALSE)
+    
+    AGE_RANGE_16_19_YRS   <- ifelse(AGE_RANGE == "10s", 1, 0)
+    AGE_RANGE_20_29_YRS   <- ifelse(AGE_RANGE == "20s", 1, 0)
+    AGE_RANGE_30_39_YRS   <- ifelse(AGE_RANGE == "30s", 1, 0)
+    AGE_RANGE_40_49_YRS   <- ifelse(AGE_RANGE == "40s", 1, 0)
+    AGE_RANGE_50_59_YRS   <- ifelse(AGE_RANGE == "50s", 1, 0)
+    AGE_RANGE_60_69_YRS   <- ifelse(AGE_RANGE == "60s", 1, 0)
+    AGE_RANGE_70_YRS_PLUS <- ifelse(AGE_RANGE == "70+", 1, 0)
+    
+    # drop AGE_RANGE
+    AGE_RANGE <- NULL
+    
+    INEXP_DRIVER <- ifelse(AGE <= 21, 1, 0)
+    
+    # EDUCATION #
+    # Five leves: <High School, Bachelors, Masters, PhD, z_High School
+  
+    #levels(insurance_train$EDUCATION)
+  
+    EDU_HIGH_SCHOOL <- ifelse(EDUCATION=="<High School", 0, 1) 
+    EDU_COLLEGE <- ifelse(EDUCATION %in% c("Bachelors", "Masters", "PhD"), 1, 0)
+    EDU_ADV_DEGREE <- ifelse(EDUCATION %in% c("Masters", "PhD"), 1, 0) 
+    
+    EDUCATION <- NULL                                          # drop EDUCATION
+    
+    # JOB # 
+    # https://en.wikipedia.org/wiki/Designation_of_workers_by_collar_color
+    # levels(insurance_train$JOB)
+  
+    # This section classifies job types into collar designations (Team confirmation TBD
+    # Gold, White, Blue, Pink, 
+    
+    #EMPLOYED <- ifelse(JOB %in% c("Home Maker", "Student"), 0, 1) 
+    OCCUPATION_CLERICAL <- ifelse(JOB=="Clerical", 1, 0)
+    OCCUPATION_MANAGER <- ifelse(JOB=="Manager", 1, 0)
+    OCCUPATION_BLUE_COLLAR <- ifelse(JOB=="z_Blue Collar", 1, 0)
+    OCCUPATION_GOLD_COLLAR <- ifelse(JOB=="Doctor" | JOB=="Lawyer", 1, 0)
+    OCCUPATION_STUDENT <- ifelse(JOB=="Student", 1, 0)
+    OCCUPATION_HOME_MAKER <- ifelse(JOB=="Home Maker", 1, 0)
+    OCCUPATION_PROFESSIONAL <- ifelse(JOB=="Professional", 1, 0)
+    
+    JOB<-NULL
+    
+    # CAR_USE #
+    # Two leves: Commercial, Private  
+  
+    VEHICLE_USE_COMMERCIAL <- ifelse(CAR_USE=="Commercial", 1, 0)  # Assign 1 for Commercial use else 0 for Private 
+    CAR_USE <- NULL
+
+    # CAR_TYPE #
+  
+    # insurance_train %>% group_by(CAR_TYPE, CAR_USE) %>% tally()
+    # insurance_train %>% group_by(CAR_TYPE ) %>% tally()
+  
+    # This section classifies vehicles into 3 types -- car, SUV, or truck
+  
+   # https://www.automotivescience.com/pages/vehicle-class-division
+  
+    VEHICLE_CLASS_CAR <- ifelse(CAR_TYPE=="Sports Car", 1, 0)
+    VEHICLE_CLASS_SUV <- ifelse(CAR_TYPE %in% c("Minivan", "z_SUV"), 1, 0)
+    VEHICLE_CLASS_TRUCK  <- ifelse(CAR_TYPE %in% c("Van", "Pickup", "Panel Truck"), 1, 0)
+    SPORTS_CAR <- ifelse(CAR_TYPE=="Sports Car", 1, 0)
+    
+
+    
+    TRUCK_COMM <- ifelse(VEHICLE_CLASS_TRUCK & VEHICLE_USE_COMMERCIAL, 1, 0)
+    SUV_COMM <- ifelse(VEHICLE_CLASS_SUV & VEHICLE_USE_COMMERCIAL, 1, 0)
+    CAR_COMM <- ifelse(VEHICLE_CLASS_CAR & VEHICLE_USE_COMMERCIAL, 1, 0)
+    
+    # RED_CAR #
+    # Two levels: "no"  "yes"
+    #levels(insurance_train$RED_CAR)
+    
+    RED_CAR <- as.numeric(ifelse(RED_CAR == "yes", 1, 0))
+    
+    RED_SPORTS_CAR <- ifelse(RED_CAR & CAR_TYPE=="Sports Car", 1, 0)
+  
+    CAR_TYPE <- NULL                # drop CAR_TYPE
+    # REVOKED #
+    # levels(insurance_train$REVOKED)
+    # Two levels: "No"  "Yes"
+  
+    LICENSE_REVOKED <- ifelse(REVOKED=="Yes", 1, 0)
+    REVOKED <- NULL                                    # drop CAR_TYPE
+  
+    # URBANICITY #
+    # levels(insurance_train$URBANICITY)
+  
+    MAIN_DRIVING_CITY <- ifelse(URBANICITY=="Highly Urban/ Urban", 1, 0)
+    URBANICITY <- NULL                          # drop URBANICITY
+    
+    
+    CAR_AGE_RANGE <- cut(CAR_AGE,
+                     breaks = c(-Inf, 2 , 3, 5, 10, Inf),
+                     labels = c("1", "2-3", "3-5", "5-10", "10+"),
+                     right = FALSE)
+    
+    CAR_AGE_RANGE_1_YR <- ifelse(CAR_AGE_RANGE == "1", 1, 0)
+    CAR_AGE_RANGE_2_3_YRS <- ifelse(CAR_AGE_RANGE == "2-3", 1, 0)
+    CAR_AGE_RANGE_3_5_YRS <- ifelse(CAR_AGE_RANGE == "3-5", 1, 0)
+    CAR_AGE_RANGE_5_10_YRS <- ifelse(CAR_AGE_RANGE == "5-10", 1, 0)
+    CAR_AGE_RANGE_10_YRS_PLUS <- ifelse(CAR_AGE_RANGE == "10+", 1, 0)
+   
+    CAR_AGE_RANGE <- NULL
+    
+  })
+  
+  return_df %>% dplyr::select(-contains('insurance_train')) -> return_df
+  
+  #print(colnames(return_df))
+    
+  return_df %>%
+    # reorder columns
+    dplyr::select(TARGET_FLAG:KIDSDRIV, MALE, MARRIED, SINGLE_PARENT,  LICENSE_REVOKED,
+                  AGE, AGE_RANGE_16_19_YRS, AGE_RANGE_20_29_YRS, AGE_RANGE_30_39_YRS, 
+                  AGE_RANGE_40_49_YRS, AGE_RANGE_50_59_YRS, AGE_RANGE_60_69_YRS, AGE_RANGE_70_YRS_PLUS,
+                  INEXP_DRIVER,
+                  HOMEKIDS:TIF,
+                  OLDCLAIM:CAR_AGE, 
+                  CAR_AGE_RANGE_1_YR, CAR_AGE_RANGE_2_3_YRS, CAR_AGE_RANGE_3_5_YRS,
+                  CAR_AGE_RANGE_5_10_YRS, CAR_AGE_RANGE_10_YRS_PLUS, 
+                  MAIN_DRIVING_CITY,  RED_CAR,
+                  EDU_HIGH_SCHOOL, EDU_COLLEGE, EDU_ADV_DEGREE, 
+                  VEHICLE_USE_COMMERCIAL, VEHICLE_CLASS_TRUCK:VEHICLE_CLASS_CAR, SPORTS_CAR, RED_SPORTS_CAR,
+                  TRUCK_COMM, SUV_COMM, CAR_COMM, OCCUPATION_CLERICAL, OCCUPATION_MANAGER,
+                  OCCUPATION_BLUE_COLLAR, OCCUPATION_GOLD_COLLAR, OCCUPATION_STUDENT, OCCUPATION_HOME_MAKER,
+                  OCCUPATION_PROFESSIONAL
+           )  -> return_df
+  
+
+  return (return_df)
+}
+
+
+# call the transform function
+
+# recoded <- recode_predictors(insurance_train)
+
+#write.csv(recoded, 'insurance_training_data_T.csv', row.names = F)
+
+## ============================================================================
+
+
+```
+
+
+#Transform data - Logistic Regression Dataset
+```{r}
+#insurance_trainingT <- read.csv( "https://raw.githubusercontent.com/621-Group2/HW4/master/insurance_training_data_T.csv")
+
+#x1 <- glm(TARGET_FLAG ~., family= binomial(), data = insurance_trainingT)
+#car::mmps(x1)
+```
+
+
+#Imput Recoded dataset
+
+
+```{r impute, echo=FALSE, message=FALSE, warning=FALSE}
+#insurance_training_dataT <- read.csv( "https://raw.githubusercontent.com/621-Group2/HW4/master/insurance_training_data_recoded.csv")
+
+#insurance_train_impute <- mice(insurance_training_dataT,m=3,maxit=50,meth='cart',seed=500)#summary(insurance_train_impute)
+
+#inspect imputed data
+#densityplot(insurance_train_impute)
+
+
+#Sharon's impute code
+#insurance_training_dataT <- read.csv( "https://raw.githubusercontent.com/621-Group2/HW4/master/insurance_training_data_recoded.csv")
+
+#insurance_train_impute <- mice(insurance_training_dataT,m=3,maxit=50,meth='cart',seed=500)
+#summary(insurance_train_impute)
+
+#inspect imputed data
+#densityplot(insurance_train_impute)
+
+#Check imputed values
+#insurance_train_impute$imp$AGE
+
+#head(insurance_train_impute)
+
+#get complete data ( 2nd out of 3)
+ #completeData <- complete(insurance_train_impute, 2)
+ 
+ #write.csv(completeData, 'insurance_training_Impute.csv', row.names = F)
+
+```
+
+## BUILD MODELS
+
+
+#Logistic Regression Models
+
+Our first goal is to build logistic models that will be used to predict the likelihood of a crash based on the predictors. We will start with a base model which includes all varaibles. 
+
+We check for class bias to make sure that the number of positive cases (accidents) is relatively in balance with the number of negative cases (non-accidents). We seem to have a reasonable amount of both positive and negative cases, and the fact that there are less non-accidents than accidents in the dataset seems to reflect what we would expect in reality.
+
+
+```{r}
+
+# Brian - move this up here.  the df Insurance_train wasn't found
+insurance_train_impute <- read.csv("https://raw.githubusercontent.com/621-Group2/HW4/master/insurance_training_Impute.csv")
+
+table(insurance_train_impute$TARGET_FLAG)
+```
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+#Keith's function
+all_model_metrics <- data.frame()
+all_roc_curves <- list()
+all_predictions <- list()
+
+calc_metrics <- function(model_name, model, test, train, show=FALSE) {
+  
+  
+  pred_model <- predict(model, test, type = 'response')
+  y_pred_model <- as.factor(ifelse(pred_model > 0.5, 1, 0))
+  
+  # psedo R2 value (McFaden):
+  McFadenR2_value <- pR2(model)[[4]]
+  
+  # Hosmer L    Test:
+  HosmerL_value <- HLgof.test(fit = fitted(model), obs = train$target)
+  HL_Chi_value <- unname(HosmerL_value$C[1]$statistic[1])
+  HL_p_value <- unname(HosmerL_value$C[3]$p.value[1])
+  # Handle very low p-value
+  HL_p_value_limit <- 2.2*(10^(-16))
+  HL_p_value_flag <- ' '
+  if (HL_p_value <= HL_p_value_limit) {
+    HL_p_value_flag <- '*'
+    HL_p_value <- HL_p_value_limit
+  }
+  
+  # Confusion Matrix
+  cm <- confusionMatrix(test$target, y_pred_model, positive = "1", mode="everything" ) 
+  
+  kappa_value <- cm$overall[[2]]
+  youden_value <- cm$byClass[[1]] - (1 - cm$byClass[[2]])
+  F1Score_value <- cm$byClass[[7]]
+  FP_value <- (cm$table[2,1]/nrow(test))*100
+  
+  #AUC
+  AUC_value <- auc(test$target, pred_model)
+  
+  cm_df <- data.frame(Model=model_name, 
+                      AIC=round(AIC(model), 3), 
+                      BIC=round(BIC(model), 3), 
+                      McFadenR2 = round(McFadenR2_value, 3), 
+                      HL_Chi = round(HL_Chi_value, 3),
+                      HL_p = HL_p_value, 
+                      '*' = HL_p_value_flag, 
+                      Kappa = round(kappa_value, 3), 
+                      Youden = round(youden_value, 3), 
+                      F1Score = round(F1Score_value, 3),
+                      FPPrct = round(FP_value, 2), 
+                      AUC = round(AUC_value[[1]], 3))
+  
+  #cbind(t(cm$overall),t(cm$byClass)))
+  
+  # ROC Curves 
+  roc_model <- roc(target ~ pred_model, data = test)
+  
+  # Result
+  result <- list(cm_df, roc_model, pred_model)
+  if (show) { 
+    
+    # calculate AIC/BIC
+    print(paste("AIC= ", round(AIC(model), 3)))
+    print(paste("BIC= ", round(BIC(model), 3)))
+    print("")
+    
+    print(cm)
+  }
+  
+  return (result)
+  
+}
+
+```
+
+#Model 1 - All Predictors
+
+We will first examine the results of a logistic regression model using all of the predictors. No transformation has been performed on the predictor variables.
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+
+
+ins <- read.csv("https://raw.githubusercontent.com/621-Group2/HW4/master/insurance_training_Impute.csv")
+
+#remove the nonapplicable target variable and change the name of the relevant variable to work with Keith's function 
+ins <- subset(ins, select = -TARGET_AMT)
+names(ins)[names(ins)=="TARGET_FLAG"] <- "target"
+
+
+
+# convert the target response variable to a factor 
+ins$target <- as.factor(ins$target)
+
+
+
+#split into test and training set
+smp <- floor(0.70 * nrow(ins))
+set.seed(4784)
+train_index <- sample(seq_len(nrow(ins)), size = smp, replace = FALSE)
+
+train_all <- ins[train_index, ]
+test_all <- ins[-train_index, ]
+
+
+
+
+#all base variables
+model1 <- glm(target ~ .,
+             data=train_all,
+             family = binomial(link="logit"))
+
+summary(model1)
+
+m1<- calc_metrics("Model1", model1, test_all, train_all, show=F)
+all_model_metrics <- rbind(all_model_metrics, m1[[1]])
+
+all_roc_curves[[1]] <- m1[[2]]
+
+all_predictions[[1]] <- m1[[3]]
+
+
+#LooK at potential variables to transform
+modt <- glm(target ~ INCOME + HOME_VAL + AGE+ TRAVTIME + BLUEBOOK + TIF + OLDCLAIM + MVR_PTS + CAR_AGE,  family=binomial(), data=train_all)
+```
+
+We will examine marginal model plots on the non binary, non factor variables to see if any appear in need of transformation.
+
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+mmps(modt)
+```
+
+#Model 2 - All Predictors with some transformed
+
+Based on the marginal model plots above, we will take the log of the following variables to see if it improves the model fit. 
+
+- TRAVTIME
+- BLUEBOOK
+- OLDCLAIM
+- TRAVTIME
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+train_allT <- train_all
+
+train_allT$AGE <- log(train_all$AGE)
+train_allT$TRAVTIME <- log(train_all$TRAVTIME+1)
+train_allT$BLUEBOOK <- log(train_all$BLUEBOOK+1)
+train_allT$OLDCLAIM <- log(train_all$OLDCLAIM+1)
+train_allT$TRAVTIME <- log(train_all$TRAVTIME+1)
+
+test_allT <- test_all
+test_allT$AGE <- log(test_all$AGE)
+test_allT$TRAVTIME <- log(test_all$TRAVTIME+1)
+test_allT$BLUEBOOK <- log(test_all$BLUEBOOK+1)
+test_allT$OLDCLAIM <- log(test_all$OLDCLAIM+1)
+test_allT$TRAVTIME <- log(test_all$TRAVTIME+1)
+
+
+transf <- glm(target ~ INCOME + HOME_VAL + AGE+ TRAVTIME + BLUEBOOK + TIF + OLDCLAIM + MVR_PTS + CAR_AGE,  family=binomial(), data=train_allT)
+```
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+mmps(transf)
+
+```
+
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+#all base variables
+model2 <- glm(target ~ .,
+             data=train_allT,
+             family = binomial(link="logit"))
+
+
+m2<- calc_metrics("Model2 - All Pred, Some Transformed", model2, test_allT, train_allT, show=F)
+all_model_metrics <- rbind(all_model_metrics, m2[[1]])
+
+all_roc_curves[[2]] <- m2[[2]]
+
+all_predictions[[2]] <- m2[[3]]
+```
+
+There is no statistically significant difference when using the transformed variables based on the below log likelihood test. As such, and because the AIC value is slightly smaller for the non-tranfromed data, we will proceed using the non-transformed data.
+
+
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+library(lmtest)
+lrtest(model1, model2)
+
+```
+
+#Stepwise AIC 
+
+We proceed in model selection using forward and backward variable selection to minimize AIC values. 
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+
+mod3 <- glm(target ~ .,  family=binomial(), data=train_all)
+
+# suppress printing the information during the each step
+model3 <- step(mod3, direction="both", trace=0)
+
+summary(model3)
+
+
+
+m3<- calc_metrics("Model3 - Step", model3, test_all, train_all, show=F)
+all_model_metrics <- rbind(all_model_metrics, m3[[1]])
+
+all_roc_curves[[3]] <- m3[[2]]
+
+all_predictions[[3]] <- m3[[3]]
+
+```
+
+As shown below, the stepwise model performs better than both of models which include all predictor models. 
+
+```{r}
+kable(all_model_metrics)
+
+```
+
+We will now examine the importance of the variables. Based on the below, The top 5 predictors are as follows:
+
+- MAIN_DRIVING_CITY
+- LICENSE_REVOKED
+- MVR_PTS
+- KIDSDRIV
+- BLUEBOOK
+
+However, it should be noted that there was statistical signifance for a number of variables. 
+
+```{r}
+x <- data.frame(varImp(model3))
+
+x$Variable <- rownames(x)
+
+x %>% ggplot(aes(x=reorder(Variable, Overall), y=Overall, fill=Overall)) +
+            geom_bar(stat="identity") + coord_flip() + guides(fill=FALSE) +
+            xlab("Variable") + ylab("Importance") + 
+            ggtitle("Variable Importance")  
+```
+
+```{r}
+exp(model3$coefficients)
+```
+
+#Model 4 - Robust GLM
+
+Using the variables selected by the stepwise method above in model 3, we now use robust regression to account for influential values.
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+model4 <- glmrob(target ~ KIDSDRIV + MALE + MARRIED + SINGLE_PARENT + 
+    LICENSE_REVOKED + AGE_RANGE_20_29_YRS + AGE_RANGE_30_39_YRS + 
+    AGE_RANGE_50_59_YRS + AGE_RANGE_60_69_YRS + INCOME + HOME_VAL + 
+    TRAVTIME + BLUEBOOK + TIF + OLDCLAIM + CLM_FREQ + MVR_PTS + 
+    MAIN_DRIVING_CITY + EDU_COLLEGE + VEHICLE_USE_COMMERCIAL  + VEHICLE_CLASS_SUV +
+    TRUCK_COMM + OCCUPATION_MANAGER, family = binomial, data = train_all, 
+               method="Mqle")
+
+
+
+summary(model4)
+
+```
+
+#Accuracy of Model 3
+
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+model3fit <- predict(model3,newdata=test_all[,2:ncol(test_all)],type='response')
+model3fit <- ifelse(model3fit > 0.5,1,0)
+misClasificError <- mean(model3fit != test_all$target)
+print(paste('Accuracy Model3:',1-misClasificError))
+
+
+library(ROCR)
+p <- predict(model3, newdata=test_all[,2:ncol(test_all)], type="response")
+pr <- prediction(p, test_all$target)
+prf <- performance(pr, measure = "tpr", x.measure = "fpr")
+plot(prf, main = "Model 3 ROC")
+
+auc <- performance(pr, measure = "auc")
+print(paste('Area Under the Curve - Model 3:',auc@y.values[[1]]))
+
+```
+
+#Accuracy of Model 4
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+model4fit <- predict(model4,newdata=test_all[,2:ncol(test_all)],type='response')
+model4fit <- ifelse(model4fit > 0.5,1,0)
+misClasificError <- mean(model4fit != test_all$target)
+print(paste('Accuracy Model4:',1-misClasificError))
+
+
+p <- predict(model4, newdata=test_all[,2:ncol(test_all)], type="response")
+pr <- prediction(p, test_all$target)
+prf <- performance(pr, measure = "tpr", x.measure = "fpr")
+plot(prf, main = "Model 4 ROC")
+
+auc <- performance(pr, measure = "auc")
+print(paste('Area Under the Curve - Model 4:',auc@y.values[[1]]))
+
+```
+
+We now see how accurate our predictions are of the test set. It appears although they are very similar the non robust method has a slightly higher accuracy. As such we will use model 3, the stepwise method on the non-transformed data. 
+
+```{r}
+table(model3fit)
+```
+
+
+#Multiple Linear Regression Models
+
+```{r load_dev_train, include=FALSE}
+
+set.seed(4211)
+
+## TRAIN/TEST Dataset Creation ##
+
+# read in the imputed training dataset
+insurance_train <- read.csv( "https://raw.githubusercontent.com/621-Group2/HW4/master/insurance_training_Impute.csv")  
+
+
+# remove target amounts that are not postive
+insurance_train <- filter(insurance_train, TARGET_FLAG == 1)
+
+#Remove negative observation
+insurance_train <- insurance_train[insurance_train$CAR_AGE >= 0, ]
+
+# drop the target_flag response variable
+insurance_train$TARGET_FLAG <- NULL
+
+
+# create the dev_train and dev_test datasets using the non-transformed variables
+idx <-createDataPartition(y=insurance_train$TARGET_AMT,p=0.7,list=FALSE)
+dev_train <-insurance_train[idx,]
+dev_test <-insurance_train[-idx,]
+
+options( scipen = 0 )
+
+```
+
+```{r lm_metrics}
+
+## regression model metrics
+
+lm_model_metrics <- data.frame()
+
+all_lm_predictions <- list()
+
+
+# Valerie - I started creating an equivalent calc_metrics for linear regression models.
+#           metrics are slighlty different. will need to add more like adj R-squared etc.
+calc_metrics_lm <- function(model_name, model, test, train, log_trans=FALSE, robust=FALSE) {
+  
+  
+  predicted <- predict(model, test)  # predict on test data
+  
+  predicted <- if (log_trans) {exp(predicted)} else { predicted }
+  actual <-    if (log_trans)  {exp(test$TARGET_AMT)} else {  test$TARGET_AMT}
+
+
+  compare <- cbind (actual=actual, predicted)  # combine
+
+  model_accuracy <- mean (apply(compare, 1, min)/apply(compare, 1, max))
+  
+  #MAPE calculates the mean absolute percentage error:
+  
+  #SMAPE calculates the symmetric mean absolute percentage error:
+    
+  #MSE calculates mean squared error:
+
+  # RMSE calculates the root mean squared error:
+
+  #https://cran.r-project.org/web/packages/sjPlot/vignettes/sjtlm.html
+  #https://stackoverflow.com/questions/30147756/exporting-r-regression-summary-for-publishable-paper
+  
+  metrics_df <- data.frame(Model=model_name, 
+                           AIC=ifelse(robust, NA, round(AIC(model), 3)), 
+                           BIC=ifelse(robust, NA, round(BIC(model), 3)), 
+                           accuracy=round(model_accuracy, 3), #acc=Metrics::accuracy(compare[, 1], compare[, 2]),
+                           MAE=Metrics::mae(compare[, 1], compare[, 2]),
+                           MAPE=Metrics::mape(compare[, 1], compare[, 2]),     #MAPE calculates the mean absolute percentage error:
+                           SMAPE=Metrics::smape(compare[, 1], compare[, 2]),     #SMAPE calculates the symmetric mean absolute percentage error:
+                           MSE=Metrics::mse(compare[, 1], compare[, 2]),       #MSE calculates mean squared error
+                           RMSE=Metrics::rmse(compare[, 1], compare[, 2]))     #RMSE calculates the root mean squared error:
+                      
+
+  # Result
+  result <- list(metrics_df, predicted, compare)
+
+  
+  return (result)
+  
+}
+
+# m <- calc_metrics_lm('t', model2, dev_test, dev_train)
+```
+
+
+
+#Model 1 Multiple Regression - Baseline Model Non-transformed variables
+The base multiple linear regression model of imputed data. This model predicts the cost if a car is in a crash (TARGET_AMT) using all predictor variables. This shows the estimated cost is negative the assumption the car did not crash.
+
+The following conclusions can be made from the model:
+ * The likelihood that a car will crash increase by 3.9% when the insurer drives with kids
+ * The likelihood that a car will crash declined by -5.9% when the insurer is married.
+ * The likelihood that a car will crash increased by 5.4% when the insurer's license was revoked in the past 7 years.
+ 
+ The R-squared = .07 we reject the null hypothesis
+ 
+##Model Diagnosis
+###Residual vs Fitted Plot
+The plot shows the residuals have a linerar pattern -- the majorty are close to the line. There could be a linear relationship between predictor variabes and an outcome bariable. There appear to be some bad leverage outliers -- 76910, 85,383 and 7.072.
+
+###Scale-Location Plot
+This plot shows that residuals are not equally spread along the range of predictors. Thus, the variance is not equal.
+
+###Normal Q-Q Plot
+This plot shows the residuals are not normally distrubuted.
+
+###Residual vs. Leverage Plot
+This plot shows there are some infuential outliers. There are cases far beyond the Cook's distance lines -- the other residuals appear to be clustered on the left. The influential observations are 7691, 7270 and 29030.
+
+```{r multiple regression base model, echo=FALSE, message=FALSE, warning=FALSE}
+#dataBase <- read.csv("https://raw.githubusercontent.com/621-Group2/HW4/master/insurance_training_Impute.csv", header=TRUE, sep=",")
+
+#Remove TARGET_FLAG response variable
+#dataBase$TARGET_FLAG <- NULL
+
+#Remove negative observation
+#dataBase <- dataBase[dataBase$CAR_AGE >= 0, ]
+
+# fit a linear model and run a summary of its results.
+model1 = lm(TARGET_AMT ~ ., data = dev_train)
+summary(model1)
+
+
+#Diagnostic plots
+autoplot(model1, which = 1:6, colour = 'dodgerblue3',
+         smooth.colour = 'red', smooth.linetype = 'dashed',
+         ad.colour = 'black',
+         label.size = 3, label.n = 5, label.colour = 'blue',
+         ncol = 3)
+
+model1_metrics <- calc_metrics_lm("lm-Model1", model1, dev_test, dev_train)
+lm_model_metrics <- rbind(lm_model_metrics, model1_metrics[[1]])
+
+
+
+```
+
+## Model 2 - Stepwise Variable Selection Using Non-transformed Data
+
+The second model uses a stepwise variable selection with linear regression.  We chose to use both the "forward" and "backward" methods to obtain the optimal model based on the lowest AIC (Akaike Information Criterion). This modeling approach uses the non-transformed, recoded dataset.
+
+
+
+```{r}
+null.model <- lm(TARGET_AMT ~ 1 , data= dev_train)  # base intercept only model
+full.model <- lm(TARGET_AMT ~ . , data= dev_train)  # full model with all predictors
+
+# perform step-wise algorithm
+
+model2 <- step(null.model, scope = list(lower = null.model, upper = full.model), direction = "both", trace = 0, steps = 1000) 
+
+```
+
+
+#### Model Summary 
+
+```{r}
+
+summary(model2)
+
+```
+
+
+AIC (Akaike Information Criterion) for Model 2 = `r AIC(model2)`  
+BIC (Bayesian Information Criterion) for Model 2 = `r BIC(model2)`  
+
+
+#### Most Significant Variables
+
+```{r echo=FALSE}
+
+Vars <- names(unlist(model2[[1]]))                           
+Vars<- Vars[!Vars %in% "(Intercept)"]  # remove intercept 
+
+x <- setNames(data.frame(coef(model2)), 'Coefficient')
+x$Variable <- rownames(x)
+
+x %>% dplyr::filter(Variable %in% Vars) %>% dplyr::select(Variable, Coefficient) %>% kable()
+
+```
+
+#### Variable Importance 
+
+```{r echo=F}
+x <- data.frame(varImp(model2))
+
+x$Variable <- rownames(x)
+
+x %>% ggplot(aes(x=reorder(Variable, Overall), y=Overall, fill=Overall)) +
+            geom_bar(stat="identity") + coord_flip() + guides(fill=FALSE) +
+            xlab("Variable") + ylab("Importance") + 
+            ggtitle("Variable Importance")  
+
+````
+
+
+__Interpretation.__  Five predictor variables are among the most significant in this model - BLUEBOOk, MARRIED, AGE_RANGE_16_19_YRS, HOME_VAL, INCOME, and MALE.  Of these, BLUEBOOK, MARRIED, AGE_RANGE_16_19_YRS, and HOME_VAL are the most statistically significant with a p-value less than a signficance value of 0.05.  The predictors INCOME and MALE were not statistically significant, although it's interesting to note that there may be a potential relationship between male drivers and a higher payout amount.
+
+BLUEBOOK value intuitively makes sense as a significant and important predictor in the payout amount; however, the corresponding coefficient of nearly 0 is not intuitive.  We see that the predictor MARRIED is associated with a negative coefficient of -1423.  This indicating that married drivers tend to have lower payout amounts as compared to single drivers, potentially a strong indicator of safer driving.
+
+Conversely, the predictor AGE_RANGE_16_19_YRS is significant with a positive coefficient of 6,676 indicating that drivers between the ages of 16 to 19 are a less safe group and are associated with higher claim payout amounts.
+
+The Adjusted R-squared value associated with this model is very low at 0.2235.  There is a significant amount of variability unaccounted for by this model in the response variable.  The F-statistic or F- Test for overall significance does show significance.
+
+
+### Diagnostic Plots
+
+The diagnostics plots below are examined to test the assumptions of linear regression.
+
+```{r echo=F}
+
+autoplot(model2, which = 1:6, colour = 'dodgerblue3',
+         smooth.colour = 'red', smooth.linetype = 'dashed',
+         ad.colour = 'black',
+         label.size = 3, label.n = 5, label.colour = 'blue',
+         ncol = 3)
+
+```
+
+
+
+The diagnostic plots reveal some potential issues with this model.  The Residuals vs. Fitted plot shows a downward trend -- as the fitted values increase on the x-axis, the residuals decrease.  We would expect to see a flat line if there is homoscedasticity (residuals of equal variance). Heteroscedascity can also seen in the Scale-Location plot.  Again we would expect to see a relatively flat trend compared to the updward trend of the red line.
+
+Heteroscedasticity can be confirmed statistically using the NCV test:
+
+```{r}
+car::ncvTest(model2)
+```
+
+The p-value less than a signficance value of 0.05 confirms that there is definitely a pattern in the residuals (heteroscedasticity).
+
+The Normal Q-Q plot shows a issue with the requirement of normal distibution of residuals.  We see a step increase approaching the second quantile confirming violations of normality, which could affect the coefficients of the model.  This plus the heteroscedasticity are strong indicators that the a transformation may be required.
+
+
+Multicollinearity does not appear to be a problem.
+```{r}
+
+car::vif(model2)
+
+```
+
+Additionally, this model is impacted by outliers as shown by Cook's distance and the leverage plots.
+
+```{r}
+car::outlierTest(model2)
+
+plot(cooks.distance(model2), pch=23, bg='orange', cex=2, ylab="Cook's distance")
+
+```
+
+Removal of these two outliers does not change the model in any significant way.
+
+```{r echo=FALSE}
+dev_train_upd <- dev_train[which(cooks.distance(model2) < 0.1),]
+
+
+
+#dev_train[which(cooks.distance(model2)==2038)]
+
+
+mod2 <- update(model2,data=dev_train_upd)
+
+# autoplot(mod2, which = 1:6, colour = 'dodgerblue3',
+#          smooth.colour = 'red', smooth.linetype = 'dashed',
+#          ad.colour = 'black',
+#          label.size = 3, label.n = 5, label.colour = 'blue',
+#          ncol = 3)
+
+gvlma(mod2)
+
+model2_metrics <- calc_metrics_lm("lm-Model2", model2, dev_test, dev_train)
+lm_model_metrics <- rbind(lm_model_metrics, model2_metrics[[1]])
+
+```
+
+
+
+#Transform Multiple Regression Model - Natural Log
+
+### Data Preparation
+Log transformation was used to transform the imputed data set. Trasformation was applied to the response variable (TARGET_AMT). To adopt the dataset to the requirements of log transformation all zero value observations were removed. The decsion to remove zero values from the response variable instead of adding a value to prevent any data distortion.
+
+Several recoded predictors that were not significant to the model were removed before transformation. The remaining dataset contained 2,152 observations.
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+#dataBase <- read.csv("https://raw.githubusercontent.com/621-Group2/HW4/master/insurance_training_Impute.csv", header=TRUE, sep=",")
+
+#Remove all TARGET_AMT rows with 0
+#dataBase <- dataBase[dataBase$TARGET_AMT != 0, ]
+
+#Remove observation with missing values
+#dataBase <- dataBase[dataBase$CAR_AGE >= 0, ]
+
+#Remove TARGET_FLAG response variable
+#dataBase$TARGET_FLAG <- NULL
+
+#Transform the response variable TARGET_AMT
+# KF: changed to use dev_train dataset
+insurance_trainT <- dev_train
+
+insurance_trainT['TARGET_AMT'] <- log(insurance_trainT['TARGET_AMT'])
+
+#Remove binary predictors
+
+insurance_trainT <- insurance_trainT[,-c(8:14, 27:31, 37:35)]
+
+insurance_train_test <- dev_test
+insurance_train_test['TARGET_AMT'] <- log(insurance_train_test['TARGET_AMT'])
+
+insurance_train_test <- insurance_train_test[,-c(8:14, 27:31, 37:35)]
+
+#write.csv(insurance_trainT, 'insurance_training_trans.csv', row.names = F)
+
+
+```
+
+## Model 3 - Stepwise Variable Selection using Transformed Data
+
+###Model 1
+Model one is a baseline model of the transformed response variale against all predictors. The summary of the regression model shows F=1.56 with a p-value=0.017, indicating that we accept the null hypothesis that the predictors collectively have a significant effect on the amount paid when there is a crash.
+
+##Model Diagnosis
+
+```{r f, echo=FALSE, message=FALSE, warning=FALSE}
+
+#Model with TARGET transformed all predictors
+
+fit2 <-lm(TARGET_AMT ~ ., data = insurance_trainT)
+summary(fit2)
+
+#Diagnostic plots
+autoplot(fit2, which = 1:6, colour = 'dodgerblue3',
+         smooth.colour = 'red', smooth.linetype = 'dashed',
+         ad.colour = 'black',
+         label.size = 3, label.n = 5, label.colour = 'blue',
+         ncol = 3)
+
+
+```
+
+##Step Multiple Regression - Backward
+
+The output of the Backward AIC Step regression shows that most of the predictors do not have significance to the total amount paid when there is a crash.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+
+# fit4 <- stepAIC(fit2, trace=FALSE, direction="backward")
+# fit4$anova 
+# 
+# display results
+
+# visualize variable importance
+# library(caret)
+# x <- data.frame(varImp(fit4))
+# 
+# x$Variable <- rownames(x)
+# 
+# x %>% ggplot(aes(x=reorder(Variable, Overall), y=Overall, fill=Overall)) +
+#   geom_bar(stat="identity") + coord_flip() + guides(fill=FALSE) +
+#   xlab("Variable") + ylab("Importance") +
+#   ggtitle("Variable Importance")
+# 
+# autoplot(fit4, which = 1:6, colour = 'dodgerblue3',
+#          smooth.colour = 'red', smooth.linetype = 'dashed',
+#          ad.colour = 'black',
+#          label.size = 3, label.n = 5, label.colour = 'blue',
+#          ncol = 3)
+```
+
+##Step Multiple Regression - Forward
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+null.model <- lm(TARGET_AMT ~ 1 , data= insurance_trainT)  # base intercept only model
+#fit5 <- stepAIC(null.model, trace=FALSE, direction="forward")
+#fit5$anova 
+#display results
+
+null.model <- lm(TARGET_AMT ~ 1 , data= insurance_trainT)  # base intercept only model
+full.model <- lm(TARGET_AMT ~ . , data= insurance_trainT)  # full model with all predictors
+
+# perform step-wise algorithm
+
+fit5 <- step(null.model, scope = list(lower = null.model, upper = full.model), direction = "forward", trace = 0, steps = 1000) 
+
+fit5$anova 
+
+autoplot(fit5, which = 1:6, colour = 'dodgerblue3',
+         smooth.colour = 'red', smooth.linetype = 'dashed',
+         ad.colour = 'black',
+         label.size = 3, label.n = 5, label.colour = 'blue',
+         ncol = 3)
+
+model3_metrics <- calc_metrics_lm("lm-Model3", fit5, insurance_train_test, insurance_trainT, log_trans = T)
+lm_model_metrics <- rbind(lm_model_metrics, model3_metrics[[1]])
+
+
+```
+
+
+
+## Model 4 - Robust Regression  
+
+Model 4 applies robust linear regression to the transormed datset and model used in Model 3.  Robust regression is applied using the `robustbase` package.  Robust regression is an option for modeling data where outliers may be signicanty impacting the resulting model fit.
+
+For the purposes of the robust model build, we will only consider the non-indicator predictor variables from the dataset.
+
+```{r}
+
+dt <- dev_train[, c("TARGET_AMT", "KIDSDRIV",  "AGE",  "INCOME", 
+                   "HOME_VAL", "TRAVTIME", "BLUEBOOK",  "OLDCLAIM", "MVR_PTS")]
+
+model4 <- robustbase::lmrob(formula(fit5),  data = insurance_trainT, setting = "KS2014")
+
+model4_metrics <- calc_metrics_lm("lm-Model4", model4, insurance_train_test, insurance_trainT, log_trans = T, robust = T)
+lm_model_metrics <- rbind(lm_model_metrics, model4_metrics[[1]])
+
+```
+
+### Model Summary
+
+```{r}
+summary(model4)
+
+```
+
+The resulting summary shows that the function `lmrob` considers only `MVR_PTS` and `MVR_PTS` important as a predictor variables.  No observations are identified as having been allocated very small weights due to their identification as outliers.
+
+
+
+
+ 
+
+
+
+
+
+### Diagnostic Plots
+
+The diagnostics plots below are examined to test the assumptions of linear regression.
+
+```{r echo=F}
+par(mfrow=c(1,2))
+robustbase::plot(model4)
+
+#predicted <- predict(model4,  insurance_train_test)   # predict on test data
+#compare <- cbind (actual=dev_test$TARGET_AMT, predicted)  # combine
+
+#accuracy <- mean (apply(compare, 1, min)/apply(compare, 1, max))
+
+
+```
+
+The resulting Residual vs. Fitted Values plot looks more evenly distributed, indicating a better model fit. However, the Normal Q-Q Plot still shows a step incline as the plot moves closer to the 2nd theoretical quantile value.
+
+## Linear Regression Model Metrics
+```{r}
+
+kable(lm_model_metrics)
+```
+
+## Logistic Regression Model Metrics
+```{r}
+kable(all_model_metrics)
+```
+
